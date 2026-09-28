@@ -1,0 +1,46 @@
+{
+  "version": 5,
+  "slides": [
+    {
+      "id": "slide_1",
+      "title": "deneme",
+      "subtitle": "A NEW BEGINNING • LIVE EVENT",
+      "badge": "NEWS",
+      "bgGradientStart": "#3d0f70",
+      "bgGradientEnd": "#d938a6",
+      "imageUrl": "",
+      "actionUrl": "https://github.com/Bavsimus/unity-billboard"
+    },
+    {
+      "id": "slide_2",
+      "title": "BILLBOARD SUITE 2.0",
+      "subtitle": "DYNAMIC 2D & 3D CAMERA FACING",
+      "badge": "UPDATE",
+      "bgGradientStart": "#144073",
+      "bgGradientEnd": "#26bfd9",
+      "imageUrl": "",
+      "actionUrl": "https://github.com"
+    },
+    {
+      "id": "slide_3",
+      "title": "IMPOSTOR BAKERY",
+      "subtitle": "MULTI-ANGLE SPRITE RENDERING",
+      "badge": "FEATURE",
+      "bgGradientStart": "#66260d",
+      "bgGradientEnd": "#f28c1f",
+      "imageUrl": "",
+      "actionUrl": "https://unity.com"
+    },
+    {
+      "id": "slide_4",
+      "title": "COMMUNITY SHOWCASE",
+      "subtitle": "CREATIVE MODES & SANDBOX",
+      "badge": "FEATURED",
+      "bgGradientStart": "#145938",
+      "bgGradientEnd": "#40d98c",
+      "imageUrl": "",
+      "actionUrl": "https://store.steampowered.com"
+    }
+  ],
+  "updatedAt": "2026-09-28T18:07:04.325Z"
+}

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unity Carousel LiveOps CMS</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Top Bar -->
+    <header class="navbar">
+      <div class="nav-brand">
+        <div class="brand-badge">LIVEOPS</div>
+        <div class="brand-title">CAROUSEL <span>CONTROL CENTER</span></div>
+      </div>
+      <div class="nav-endpoint">
+        <span class="endpoint-label">Unity Endpoint:</span>
+        <code id="endpointUrl">http://localhost:3000/api/carousel</code>
+        <button id="btnCopyEndpoint" title="Copy endpoint to clipboard">📋 Copy</button>
+      </div>
+      <div class="nav-actions">
+        <button id="btnRefresh" class="btn btn-secondary">🔄 Reload</button>
+        <button id="btnSaveAll" class="btn btn-primary">💾 Publish to Game</button>
+      </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="dashboard-body">
+      <!-- Left Column: In-Game Preview & Slide Manager List -->
+      <section class="panel-column left-column">
+        
+        <!-- Live In-Game Simulator Card -->
+        <div class="card preview-card">
+          <div class="card-header">
+            <h3>🎮 Live Unity Carousel Preview</h3>
+            <span class="preview-tag">Real-Time Simulation</span>
+          </div>
+
+          <div class="carousel-preview-container">
+            <div id="previewSlide" class="preview-slide">
+              <div class="preview-header">
+                <div class="preview-dots" id="previewDots">
+                  <!-- Generated dots -->
+                </div>
+                <div class="preview-badge" id="previewBadge">NEWS</div>
+              </div>
+              <div class="preview-footer">
+                <div class="preview-subtitle" id="previewSubtitle">A NEW BEGINNING • LIVE EVENT</div>
+                <div class="preview-title" id="previewTitle">THE BIG BANG</div>
+              </div>
+              <!-- Arrows -->
+              <button id="prevArrow" class="preview-nav prev-arrow">‹</button>
+              <button id="nextArrow" class="preview-nav next-arrow">›</button>
+            </div>
+          </div>
+          <div class="preview-controls">
+            <button id="btnPreviewPrev" class="btn btn-sm">‹ Previous</button>
+            <span id="previewCounter" class="preview-counter">Slide 1 of 4</span>
+            <button id="btnPreviewNext" class="btn btn-sm">Next ›</button>
+          </div>
+        </div>
+
+        <!-- Slide List Manager -->
+        <div class="card slide-list-card">
+          <div class="card-header">
+            <h3>📑 Slides Order & Configuration</h3>
+            <button id="btnAddSlide" class="btn btn-accent btn-sm">➕ Add Slide</button>
+          </div>
+          <div class="slides-list" id="slidesList">
+            <!-- Dynamic slide items injected here -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Slide Editor Form -->
+      <section class="panel-column right-column">
+        <div class="card editor-card">
+          <div class="card-header">
+            <h3 id="editorHeading">✏️ Edit Slide</h3>
+            <span id="slideIndexBadge" class="badge-index">#1</span>
+          </div>
+
+          <form id="slideEditForm" class="editor-form">
+            <div class="form-group">
+              <label for="slideTitle">Slide Title</label>
+              <input type="text" id="slideTitle" placeholder="e.g. THE BIG BANG" required />
+            </div>
+
+            <div class="form-group">
+              <label for="slideSubtitle">Subtitle / Teaser</label>
+              <input type="text" id="slideSubtitle" placeholder="e.g. A NEW BEGINNING • LIVE EVENT" />
+            </div>
+
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="slideBadge">Badge Tag</label>
+                <input type="text" id="slideBadge" placeholder="e.g. NEWS, UPDATE, EVENT" />
+              </div>
+              <div class="form-group flex-2">
+                <label for="slideActionUrl">Action URL (On Slide Click)</label>
+                <input type="url" id="slideActionUrl" placeholder="https://store.steampowered.com/..." />
+              </div>
+            </div>
+
+            <!-- Background Type Toggle -->
+            <div class="form-group">
+              <label>Visual Style</label>
+              <div class="tab-switch">
+                <button type="button" id="tabGradient" class="tab-btn active">Procedural Gradient</button>
+                <button type="button" id="tabImage" class="tab-btn">Custom Banner Image</button>
+              </div>
+            </div>
+
+            <!-- Gradient Pickers Section -->
+            <div id="sectionGradient" class="style-section">
+              <div class="form-row">
+                <div class="form-group color-pick">
+                  <label for="gradStart">Start Color</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="gradStart" value="#3d0f70" />
+                    <input type="text" id="gradStartHex" value="#3d0f70" />
+                  </div>
+                </div>
+                <div class="form-group color-pick">
+                  <label for="gradEnd">End Color</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="gradEnd" value="#d938a6" />
+                    <input type="text" id="gradEndHex" value="#d938a6" />
+                  </div>
+                </div>
+              </div>
+              <div class="color-presets">
+                <span>Presets:</span>
+                <button type="button" class="preset-btn" data-s="#3d0f70" data-e="#d938a6">Cosmic Violet</button>
+                <button type="button" class="preset-btn" data-s="#144073" data-e="#26bfd9">Cyan Plasma</button>
+                <button type="button" class="preset-btn" data-s="#66260d" data-e="#f28c1f">Solar Ember</button>
+                <button type="button" class="preset-btn" data-s="#145938" data-e="#40d98c">Emerald Glow</button>
+              </div>
+            </div>
+
+            <!-- Custom Image Upload Section -->
+            <div id="sectionImage" class="style-section hidden">
+              <div class="upload-dropzone" id="dropzone">
+                <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+                <div class="dropzone-content" id="dropzoneContent">
+                  <div class="upload-icon">📁</div>
+                  <p><strong>Click to browse</strong> or drag & drop banner image</p>
+                  <small>Supports PNG, JPG, WEBP (Recommended: 1280x720 or 16:9)</small>
+                </div>
+                <div id="imagePreviewContainer" class="image-preview-box hidden">
+                  <img id="imagePreview" src="" alt="Slide Banner" />
+                  <button type="button" id="btnRemoveImage" class="btn btn-danger btn-sm">Remove Image</button>
+                </div>
+              </div>
+              <div class="form-group direct-url-group">
+                <label for="slideImageUrl">Or direct image URL:</label>
+                <input type="text" id="slideImageUrl" placeholder="http://... or /uploads/..." />
+              </div>
+            </div>
+
+            <div class="editor-actions">
+              <button type="submit" class="btn btn-primary">Apply Changes to Slide</button>
+              <button type="button" id="btnDeleteCurrentSlide" class="btn btn-danger">Delete Slide</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

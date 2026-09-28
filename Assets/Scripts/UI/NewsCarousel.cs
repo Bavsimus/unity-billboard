@@ -1,0 +1,543 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Networking;
+using UnityEngine.UI;
+
+namespace BillboardTool.UI
+{
+    /// <summary>
+    /// Interactive News Carousel / Slideshow widget inspired by Fortnite's "THE BIG BANG" news banner.
+    /// Supports remote live CMS updates over HTTP, image downloads, dynamic pagination dots,
+    /// auto-sliding, smooth crossfades, and click callbacks (with action URLs).
+    /// </summary>
+    public class NewsCarousel : MonoBehaviour
+    {
+        [System.Serializable]
+        public class NewsSlide
+        {
+            public string title;
+            public string subtitle;
+            public string badge;
+            public Color bgGradientStart;
+            public Color bgGradientEnd;
+            public Sprite customImage;
+            public string imageUrl;
+            public string actionUrl;
+
+            public NewsSlide(string title, string subtitle, string badge, Color start, Color end)
+            {
+                this.title = title;
+                this.subtitle = subtitle;
+                this.badge = badge;
+                this.bgGradientStart = start;
+                this.bgGradientEnd = end;
+            }
+        }
+
+        [System.Serializable]
+        private class RemoteSlideData
+        {
+            public string id;
+            public string title;
+            public string subtitle;
+            public string badge;
+            public string bgGradientStart;
+            public string bgGradientEnd;
+            public string imageUrl;
+            public string actionUrl;
+        }
+
+        [System.Serializable]
+        private class RemoteCarouselResponse
+        {
+            public int version;
+            public string updatedAt;
+            public List<RemoteSlideData> slides;
+        }
+
+        [Header("Remote CMS Configuration")]
+        [Tooltip("If true, automatically fetches slides from the web server when initialized.")]
+        [SerializeField] private bool fetchRemoteOnStart = true;
+        [Tooltip("Full URL to the JSON carousel endpoint (e.g. http://localhost:3000/api/carousel).")]
+        [SerializeField] private string remoteApiUrl = "http://localhost:3000/api/carousel";
+        [Tooltip("Interval in seconds to re-fetch slides in the background. Set to 0 to fetch only once on startup.")]
+        [SerializeField] private float autoRefreshInterval = 0f;
+
+        [Header("Slides Configuration")]
+        [SerializeField] private List<NewsSlide> slides = new List<NewsSlide>();
+        [SerializeField] private float autoAdvanceInterval = 4.5f;
+        [SerializeField] private bool autoAdvance = true;
+
+        [Header("UI References")]
+        [SerializeField] private Image slideBackgroundImage;
+        [SerializeField] private Text titleText;
+        [SerializeField] private Text subtitleText;
+        [SerializeField] private Text badgeText;
+        [SerializeField] private Transform dotsContainer;
+        [SerializeField] private List<Image> paginationDots = new List<Image>();
+        [SerializeField] private CanvasGroup contentCanvasGroup;
+
+        [Header("Dot Colors")]
+        [SerializeField] private Color activeDotColor = Color.white;
+        [SerializeField] private Color inactiveDotColor = new Color(1f, 1f, 1f, 0.35f);
+
+        public event Action<NewsSlide> OnSlideClicked;
+
+        private int currentIndex = 0;
+        private Coroutine autoSlideCoroutine;
+        private Coroutine transitionCoroutine;
+        private Coroutine fetchCoroutine;
+        private Coroutine autoRefreshCoroutine;
+        private List<Sprite> generatedSprites = new List<Sprite>();
+        private static readonly Dictionary<string, Texture2D> textureCache = new Dictionary<string, Texture2D>();
+
+        public int CurrentIndex => currentIndex;
+        public int SlideCount => slides != null ? slides.Count : 0;
+        public string RemoteApiUrl { get => remoteApiUrl; set => remoteApiUrl = value; }
+
+        private void Awake()
+        {
+            if (slides.Count == 0)
+            {
+                // Default Fortnite / Game style demo fallback slides
+                slides.Add(new NewsSlide(
+                    "THE BIG BANG",
+                    "A NEW BEGINNING • LIVE EVENT",
+                    "NEWS",
+                    new Color(0.24f, 0.06f, 0.44f), // Deep Cosmic Purple
+                    new Color(0.85f, 0.22f, 0.65f)  // Magenta Starburst
+                ));
+
+                slides.Add(new NewsSlide(
+                    "BILLBOARD SUITE 2.0",
+                    "DYNAMIC 2D & 3D CAMERA FACING",
+                    "UPDATE",
+                    new Color(0.08f, 0.25f, 0.45f), // Midnight Blue
+                    new Color(0.15f, 0.75f, 0.85f)  // Cyan Plasma
+                ));
+
+                slides.Add(new NewsSlide(
+                    "IMPOSTOR BAKERY",
+                    "MULTI-ANGLE SPRITE RENDERING",
+                    "FEATURE",
+                    new Color(0.40f, 0.15f, 0.05f), // Ember Deep
+                    new Color(0.95f, 0.55f, 0.12f)  // Solar Flare
+                ));
+
+                slides.Add(new NewsSlide(
+                    "COMMUNITY SHOWCASE",
+                    "CREATIVE MODES & SANDBOX",
+                    "FEATURED",
+                    new Color(0.08f, 0.35f, 0.22f), // Forest Emerald
+                    new Color(0.25f, 0.85f, 0.55f)  // Mint Glow
+                ));
+            }
+
+            GenerateProceduralGradients();
+            RebuildDotsUI();
+        }
+
+        private void Start()
+        {
+            UpdateSlideDisplay(0, immediate: true);
+
+            if (autoAdvance)
+            {
+                StartAutoSlide();
+            }
+
+            if (fetchRemoteOnStart && !string.IsNullOrEmpty(remoteApiUrl))
+            {
+                FetchRemoteSlides();
+            }
+
+            if (autoRefreshInterval > 0f)
+            {
+                autoRefreshCoroutine = StartCoroutine(AutoRefreshRoutine());
+            }
+        }
+
+        private void OnDisable()
+        {
+            StopAutoSlide();
+            if (autoRefreshCoroutine != null)
+            {
+                StopCoroutine(autoRefreshCoroutine);
+                autoRefreshCoroutine = null;
+            }
+            if (fetchCoroutine != null)
+            {
+                StopCoroutine(fetchCoroutine);
+                fetchCoroutine = null;
+            }
+        }
+
+        [ContextMenu("Fetch Remote Slides Now")]
+        public void FetchRemoteSlides()
+        {
+            if (fetchCoroutine != null) StopCoroutine(fetchCoroutine);
+            fetchCoroutine = StartCoroutine(FetchRemoteSlidesRoutine());
+        }
+
+        private IEnumerator AutoRefreshRoutine()
+        {
+            while (autoRefreshInterval > 0f)
+            {
+                yield return new WaitForSecondsRealtime(autoRefreshInterval);
+                yield return FetchRemoteSlidesRoutine();
+            }
+        }
+
+        private IEnumerator FetchRemoteSlidesRoutine()
+        {
+            if (string.IsNullOrEmpty(remoteApiUrl)) yield break;
+
+            Debug.Log($"[NewsCarousel] Connecting to CMS endpoint: {remoteApiUrl}");
+            using (UnityWebRequest req = UnityWebRequest.Get(remoteApiUrl))
+            {
+                req.timeout = 8;
+                yield return req.SendWebRequest();
+
+                if (req.result != UnityWebRequest.Result.Success)
+                {
+                    Debug.LogWarning($"[NewsCarousel] Remote fetch notice: {req.error}. Using active local slides.");
+                    yield break;
+                }
+
+                string json = req.downloadHandler.text;
+                RemoteCarouselResponse response = null;
+                try
+                {
+                    response = JsonUtility.FromJson<RemoteCarouselResponse>(json);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[NewsCarousel] Failed to parse JSON response: {ex.Message}");
+                    yield break;
+                }
+
+                if (response == null || response.slides == null || response.slides.Count == 0)
+                {
+                    Debug.LogWarning("[NewsCarousel] Received empty or invalid slide list from server.");
+                    yield break;
+                }
+
+                List<NewsSlide> newSlides = new List<NewsSlide>();
+                List<Sprite> newSprites = new List<Sprite>();
+
+                for (int i = 0; i < response.slides.Count; i++)
+                {
+                    RemoteSlideData data = response.slides[i];
+                    Color startCol = ParseHexColor(data.bgGradientStart, new Color(0.20f, 0.10f, 0.40f));
+                    Color endCol = ParseHexColor(data.bgGradientEnd, new Color(0.80f, 0.20f, 0.60f));
+
+                    NewsSlide slide = new NewsSlide(data.title, data.subtitle, data.badge, startCol, endCol)
+                    {
+                        imageUrl = data.imageUrl,
+                        actionUrl = data.actionUrl
+                    };
+
+                    Sprite slideSprite = null;
+
+                    // Download image if imageUrl is provided
+                    if (!string.IsNullOrEmpty(data.imageUrl))
+                    {
+                        if (textureCache.TryGetValue(data.imageUrl, out Texture2D cachedTex) && cachedTex != null)
+                        {
+                            slideSprite = Sprite.Create(cachedTex, new Rect(0, 0, cachedTex.width, cachedTex.height), new Vector2(0.5f, 0.5f));
+                        }
+                        else
+                        {
+                            using (UnityWebRequest imgReq = UnityWebRequestTexture.GetTexture(data.imageUrl))
+                            {
+                                imgReq.timeout = 10;
+                                yield return imgReq.SendWebRequest();
+                                if (imgReq.result == UnityWebRequest.Result.Success)
+                                {
+                                    Texture2D tex = DownloadHandlerTexture.GetContent(imgReq);
+                                    textureCache[data.imageUrl] = tex;
+                                    slideSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+                                }
+                                else
+                                {
+                                    Debug.LogWarning($"[NewsCarousel] Failed to load image {data.imageUrl}: {imgReq.error}");
+                                }
+                            }
+                        }
+                    }
+
+                    // Procedural gradient fallback if no custom image
+                    if (slideSprite == null)
+                    {
+                        Texture2D gradTex = CreateDiagonalGradientTexture(128, 72, startCol, endCol);
+                        slideSprite = Sprite.Create(gradTex, new Rect(0, 0, gradTex.width, gradTex.height), new Vector2(0.5f, 0.5f));
+                    }
+
+                    slide.customImage = slideSprite;
+                    newSlides.Add(slide);
+                    newSprites.Add(slideSprite);
+                }
+
+                // Apply downloaded slides
+                slides = newSlides;
+                generatedSprites = newSprites;
+
+                RebuildDotsUI();
+
+                currentIndex = Mathf.Clamp(currentIndex, 0, slides.Count - 1);
+                UpdateSlideDisplay(currentIndex, immediate: false);
+
+                Debug.Log($"[NewsCarousel] Successfully updated {slides.Count} carousel slides from web server!");
+            }
+        }
+
+        private Color ParseHexColor(string hex, Color defaultColor)
+        {
+            if (string.IsNullOrEmpty(hex)) return defaultColor;
+            if (!hex.StartsWith("#")) hex = "#" + hex;
+            if (ColorUtility.TryParseHtmlString(hex, out Color parsed))
+            {
+                return parsed;
+            }
+            return defaultColor;
+        }
+
+        public void RebuildDotsUI()
+        {
+            if (dotsContainer != null)
+            {
+                // Dynamic dot management: ensure dot objects match slides.Count
+                int currentDotCount = dotsContainer.childCount;
+                int targetDotCount = slides.Count;
+
+                paginationDots.Clear();
+
+                // Destroy excess dots
+                for (int i = targetDotCount; i < currentDotCount; i++)
+                {
+                    Transform child = dotsContainer.GetChild(i);
+                    Destroy(child.gameObject);
+                }
+
+                // Create or reuse dots
+                for (int i = 0; i < targetDotCount; i++)
+                {
+                    GameObject dotObj;
+                    if (i < currentDotCount)
+                    {
+                        dotObj = dotsContainer.GetChild(i).gameObject;
+                    }
+                    else
+                    {
+                        dotObj = new GameObject($"Dot_{i}", typeof(RectTransform), typeof(Image), typeof(Button));
+                        dotObj.transform.SetParent(dotsContainer, false);
+                        RectTransform rt = dotObj.GetComponent<RectTransform>();
+                        rt.sizeDelta = new Vector2(9f, 9f);
+                    }
+
+                    Image img = dotObj.GetComponent<Image>();
+                    Button btn = dotObj.GetComponent<Button>();
+
+                    paginationDots.Add(img);
+
+                    int targetIndex = i;
+                    btn.onClick.RemoveAllListeners();
+                    btn.onClick.AddListener(() => GoToSlide(targetIndex));
+                }
+            }
+
+            UpdateDots(currentIndex);
+        }
+
+        private void GenerateProceduralGradients()
+        {
+            generatedSprites.Clear();
+            for (int i = 0; i < slides.Count; i++)
+            {
+                if (slides[i].customImage != null)
+                {
+                    generatedSprites.Add(slides[i].customImage);
+                }
+                else
+                {
+                    Texture2D tex = CreateDiagonalGradientTexture(128, 72, slides[i].bgGradientStart, slides[i].bgGradientEnd);
+                    Sprite sp = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+                    generatedSprites.Add(sp);
+                }
+            }
+        }
+
+        private Texture2D CreateDiagonalGradientTexture(int width, int height, Color c1, Color c2)
+        {
+            Texture2D tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            tex.wrapMode = TextureWrapMode.Clamp;
+
+            for (int y = 0; y < height; y++)
+            {
+                float v = (float)y / height;
+                for (int x = 0; x < width; x++)
+                {
+                    float u = (float)x / width;
+                    float t = Mathf.Clamp01((u * 0.7f) + (v * 0.7f));
+                    Color color = Color.Lerp(c1, c2, t);
+                    tex.SetPixel(x, y, color);
+                }
+            }
+            tex.Apply();
+            return tex;
+        }
+
+        public void NextSlide()
+        {
+            if (slides.Count == 0) return;
+            int next = (currentIndex + 1) % slides.Count;
+            GoToSlide(next);
+        }
+
+        public void PreviousSlide()
+        {
+            if (slides.Count == 0) return;
+            int prev = (currentIndex - 1 + slides.Count) % slides.Count;
+            GoToSlide(prev);
+        }
+
+        public void GoToSlide(int index)
+        {
+            if (index < 0 || index >= slides.Count || index == currentIndex) return;
+
+            RestartAutoSlide();
+            UpdateSlideDisplay(index, immediate: false);
+        }
+
+        public void HandleSlideClicked()
+        {
+            if (currentIndex >= 0 && currentIndex < slides.Count)
+            {
+                NewsSlide activeSlide = slides[currentIndex];
+                Debug.Log($"[NewsCarousel] Slide clicked: {activeSlide.title}");
+                OnSlideClicked?.Invoke(activeSlide);
+
+                // Open external URL in default browser if provided
+                if (!string.IsNullOrEmpty(activeSlide.actionUrl))
+                {
+                    Application.OpenURL(activeSlide.actionUrl);
+                }
+            }
+        }
+
+        private void UpdateSlideDisplay(int targetIndex, bool immediate)
+        {
+            if (slides.Count == 0) return;
+
+            currentIndex = Mathf.Clamp(targetIndex, 0, slides.Count - 1);
+            UpdateDots(currentIndex);
+
+            if (immediate || contentCanvasGroup == null)
+            {
+                ApplySlideData(slides[currentIndex], currentIndex);
+                if (contentCanvasGroup != null) contentCanvasGroup.alpha = 1f;
+            }
+            else
+            {
+                if (transitionCoroutine != null) StopCoroutine(transitionCoroutine);
+                transitionCoroutine = StartCoroutine(CrossfadeRoutine(currentIndex));
+            }
+        }
+
+        private IEnumerator CrossfadeRoutine(int targetIndex)
+        {
+            float duration = 0.22f;
+
+            // Fade out
+            for (float t = 0; t < duration; t += Time.unscaledDeltaTime)
+            {
+                contentCanvasGroup.alpha = 1f - (t / duration);
+                yield return null;
+            }
+            contentCanvasGroup.alpha = 0f;
+
+            // Swap content
+            ApplySlideData(slides[targetIndex], targetIndex);
+
+            // Fade in
+            for (float t = 0; t < duration; t += Time.unscaledDeltaTime)
+            {
+                contentCanvasGroup.alpha = t / duration;
+                yield return null;
+            }
+            contentCanvasGroup.alpha = 1f;
+            transitionCoroutine = null;
+        }
+
+        private void ApplySlideData(NewsSlide slide, int index)
+        {
+            if (titleText != null) titleText.text = slide.title;
+            if (subtitleText != null) subtitleText.text = slide.subtitle;
+            if (badgeText != null) badgeText.text = slide.badge;
+
+            if (slideBackgroundImage != null)
+            {
+                if (index < generatedSprites.Count && generatedSprites[index] != null)
+                {
+                    slideBackgroundImage.sprite = generatedSprites[index];
+                }
+                else if (slide.customImage != null)
+                {
+                    slideBackgroundImage.sprite = slide.customImage;
+                }
+                slideBackgroundImage.color = Color.white;
+            }
+        }
+
+        private void UpdateDots(int activeIndex)
+        {
+            for (int i = 0; i < paginationDots.Count; i++)
+            {
+                if (paginationDots[i] != null)
+                {
+                    bool isActive = (i == activeIndex);
+                    paginationDots[i].color = isActive ? activeDotColor : inactiveDotColor;
+                    paginationDots[i].transform.localScale = isActive ? new Vector3(1.25f, 1.25f, 1f) : Vector3.one;
+                }
+            }
+        }
+
+        private void StartAutoSlide()
+        {
+            StopAutoSlide();
+            autoSlideCoroutine = StartCoroutine(AutoSlideTimerRoutine());
+        }
+
+        private void StopAutoSlide()
+        {
+            if (autoSlideCoroutine != null)
+            {
+                StopCoroutine(autoSlideCoroutine);
+                autoSlideCoroutine = null;
+            }
+        }
+
+        private void RestartAutoSlide()
+        {
+            if (autoAdvance)
+            {
+                StartAutoSlide();
+            }
+        }
+
+        private IEnumerator AutoSlideTimerRoutine()
+        {
+            while (true)
+            {
+                yield return new WaitForSecondsRealtime(autoAdvanceInterval);
+                if (slides.Count > 1)
+                {
+                    int next = (currentIndex + 1) % slides.Count;
+                    UpdateSlideDisplay(next, immediate: false);
+                }
+            }
+        }
+    }
+}
