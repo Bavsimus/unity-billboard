@@ -23,8 +23,11 @@ namespace BillboardTool.UI
         [SerializeField] private Slider volumeSlider;
         [SerializeField] private Toggle fullscreenToggle;
 
-        [Header("News Carousel (Fortnite The Big Bang Style)")]
-        [SerializeField] private NewsCarousel newsCarousel;
+        [Header("Zero Billboard (Fortnite The Big Bang Style)")]
+        [UnityEngine.Serialization.FormerlySerializedAs("newsCarousel")]
+        [SerializeField] private ZeroBillboard zeroBillboard;
+
+        public ZeroBillboard ZeroBillboard => zeroBillboard;
 
         [Header("Scene Configuration")]
         [SerializeField] private string targetPlaySceneName = "";
@@ -61,15 +64,21 @@ namespace BillboardTool.UI
                 fullscreenToggle.onValueChanged.AddListener(SetFullscreen);
             }
 
-            if (newsCarousel != null)
+            if (zeroBillboard != null)
             {
-                newsCarousel.OnSlideClicked += OnNewsSlideClicked;
+                zeroBillboard.OnSlideClicked += OnBillboardSlideClicked;
             }
         }
 
-        public void OnNewsSlideClicked(NewsCarousel.NewsSlide slide)
+        public void OnBillboardSlideClicked(ZeroBillboard.BillboardSlide slide)
         {
+            if (slide == null) return;
             ShowToast($"🚀 News Event: '{slide.title}' ({slide.badge})");
+        }
+
+        public void OnNewsSlideClicked(ZeroBillboard.BillboardSlide slide)
+        {
+            OnBillboardSlideClicked(slide);
         }
 
         // --- Puppet / Dummy Actions ---

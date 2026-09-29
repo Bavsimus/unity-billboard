@@ -9,14 +9,15 @@ using UnityEngine.EventSystems;
 namespace BillboardTool.UI
 {
     /// <summary>
-    /// Interactive News Carousel / Slideshow widget inspired by Fortnite's "THE BIG BANG" news banner.
+    /// Interactive Zero Billboard widget inspired by Fortnite's "THE BIG BANG" news banner.
     /// Supports remote live CMS updates over HTTP, image downloads, dynamic pagination dots,
-    /// mouse wheel scrolling, auto-sliding, smooth crossfades, and click callbacks (with action URLs).
+    /// curved corners, borders, drop shadow, mouse wheel scrolling, auto-sliding, smooth crossfades,
+    /// and click callbacks (with action URLs).
     /// </summary>
-    public class NewsCarousel : MonoBehaviour, IScrollHandler
+    public class ZeroBillboard : MonoBehaviour, IScrollHandler
     {
         [System.Serializable]
-        public class NewsSlide
+        public class BillboardSlide
         {
             public string title;
             public string subtitle;
@@ -27,7 +28,7 @@ namespace BillboardTool.UI
             public string imageUrl;
             public string actionUrl;
 
-            public NewsSlide(string title, string subtitle, string badge, Color start, Color end)
+            public BillboardSlide(string title, string subtitle, string badge, Color start, Color end)
             {
                 this.title = title;
                 this.subtitle = subtitle;
@@ -35,6 +36,16 @@ namespace BillboardTool.UI
                 this.bgGradientStart = start;
                 this.bgGradientEnd = end;
             }
+
+            public BillboardSlide() { }
+        }
+
+        // Backward compatibility type alias
+        [System.Serializable]
+        public class NewsSlide : BillboardSlide
+        {
+            public NewsSlide(string title, string subtitle, string badge, Color start, Color end) : base(title, subtitle, badge, start, end) { }
+            public NewsSlide() : base() { }
         }
 
         [System.Serializable]
@@ -51,7 +62,7 @@ namespace BillboardTool.UI
         }
 
         [System.Serializable]
-        private class RemoteCarouselResponse
+        private class RemoteBillboardResponse
         {
             public int version;
             public string updatedAt;
@@ -78,9 +89,9 @@ namespace BillboardTool.UI
         }
 
         [Header("Layout & Sizing Controls")]
-        [Tooltip("Quick presets for standard 16:9 carousel dimensions.")]
+        [Tooltip("Quick presets for standard 16:9 dimensions.")]
         [SerializeField] private CardSizePreset sizePreset = CardSizePreset.Standard_560x315;
-        [Tooltip("Custom size in pixels for the carousel card.")]
+        [Tooltip("Custom size in pixels for the card.")]
         [SerializeField] private Vector2 cardSize = new Vector2(560f, 315f);
         [Tooltip("If true, changing width in custom mode automatically locks the card to a 16:9 aspect ratio.")]
         [SerializeField] private bool lock16x9AspectRatio = true;
@@ -91,7 +102,7 @@ namespace BillboardTool.UI
 
         [Header("Curved Corners & Frame Styling")]
         [Range(0f, 32f)]
-        [Tooltip("Curved corner radius in pixels for the carousel card.")]
+        [Tooltip("Curved corner radius in pixels for the card.")]
         [SerializeField] private float cornerRadius = 14f;
 
         [Tooltip("Toggle visible card outer border.")]
@@ -138,7 +149,7 @@ namespace BillboardTool.UI
         [SerializeField] private float activeDotScale = 1.3f;
 
         [Header("Typography Scaling")]
-        [Tooltip("If true, fonts automatically scale proportionally when you resize the carousel card.")]
+        [Tooltip("If true, fonts automatically scale proportionally when you resize the card.")]
         [SerializeField] private bool autoScaleFonts = true;
         [SerializeField] private int titleFontSize = 30;
         [SerializeField] private int subtitleFontSize = 12;
@@ -159,13 +170,13 @@ namespace BillboardTool.UI
         [Header("Remote CMS Configuration")]
         [Tooltip("If true, automatically fetches slides from the web server when initialized.")]
         [SerializeField] private bool fetchRemoteOnStart = true;
-        [Tooltip("Full URL to the JSON carousel endpoint (e.g. http://localhost:3000/api/carousel).")]
+        [Tooltip("Full URL to the JSON endpoint (e.g. http://localhost:3000/api/carousel).")]
         [SerializeField] private string remoteApiUrl = "http://localhost:3000/api/carousel";
         [Tooltip("Interval in seconds to re-fetch slides in the background. Set to 0 to fetch only once on startup.")]
         [SerializeField] private float autoRefreshInterval = 0f;
 
         [Header("Slides Configuration")]
-        [SerializeField] private List<NewsSlide> slides = new List<NewsSlide>();
+        [SerializeField] private List<BillboardSlide> slides = new List<BillboardSlide>();
         [SerializeField] private float autoAdvanceInterval = 4.5f;
         [SerializeField] private bool autoAdvance = true;
 
@@ -187,7 +198,7 @@ namespace BillboardTool.UI
         [SerializeField] private List<Image> paginationDots = new List<Image>();
         [SerializeField] private CanvasGroup contentCanvasGroup;
 
-        public event Action<NewsSlide> OnSlideClicked;
+        public event Action<BillboardSlide> OnSlideClicked;
 
         private int currentIndex = 0;
         private Coroutine autoSlideCoroutine;
@@ -444,7 +455,7 @@ namespace BillboardTool.UI
             if (slides.Count == 0)
             {
                 // Default Fortnite / Game style demo fallback slides
-                slides.Add(new NewsSlide(
+                slides.Add(new BillboardSlide(
                     "THE BIG BANG",
                     "A NEW BEGINNING • LIVE EVENT",
                     "NEWS",
@@ -452,7 +463,7 @@ namespace BillboardTool.UI
                     new Color(0.85f, 0.22f, 0.65f)  // Magenta Starburst
                 ));
 
-                slides.Add(new NewsSlide(
+                slides.Add(new BillboardSlide(
                     "BILLBOARD SUITE 2.0",
                     "DYNAMIC 2D & 3D CAMERA FACING",
                     "UPDATE",
@@ -460,7 +471,7 @@ namespace BillboardTool.UI
                     new Color(0.15f, 0.75f, 0.85f)  // Cyan Plasma
                 ));
 
-                slides.Add(new NewsSlide(
+                slides.Add(new BillboardSlide(
                     "IMPOSTOR BAKERY",
                     "MULTI-ANGLE SPRITE RENDERING",
                     "FEATURE",
@@ -468,7 +479,7 @@ namespace BillboardTool.UI
                     new Color(0.95f, 0.55f, 0.12f)  // Solar Flare
                 ));
 
-                slides.Add(new NewsSlide(
+                slides.Add(new BillboardSlide(
                     "COMMUNITY SHOWCASE",
                     "CREATIVE MODES & SANDBOX",
                     "FEATURED",
@@ -586,7 +597,7 @@ namespace BillboardTool.UI
         {
             if (string.IsNullOrEmpty(remoteApiUrl)) yield break;
 
-            Debug.Log($"[NewsCarousel] Connecting to CMS endpoint: {remoteApiUrl}");
+            Debug.Log($"[ZeroBillboard] Connecting to CMS endpoint: {remoteApiUrl}");
             using (UnityWebRequest req = UnityWebRequest.Get(remoteApiUrl))
             {
                 req.timeout = 8;
@@ -594,29 +605,29 @@ namespace BillboardTool.UI
 
                 if (req.result != UnityWebRequest.Result.Success)
                 {
-                    Debug.LogWarning($"[NewsCarousel] Remote fetch notice: {req.error}. Using active local slides.");
+                    Debug.LogWarning($"[ZeroBillboard] Remote fetch notice: {req.error}. Using active local slides.");
                     yield break;
                 }
 
                 string json = req.downloadHandler.text;
-                RemoteCarouselResponse response = null;
+                RemoteBillboardResponse response = null;
                 try
                 {
-                    response = JsonUtility.FromJson<RemoteCarouselResponse>(json);
+                    response = JsonUtility.FromJson<RemoteBillboardResponse>(json);
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"[NewsCarousel] Failed to parse JSON response: {ex.Message}");
+                    Debug.LogError($"[ZeroBillboard] Failed to parse JSON response: {ex.Message}");
                     yield break;
                 }
 
                 if (response == null || response.slides == null || response.slides.Count == 0)
                 {
-                    Debug.LogWarning("[NewsCarousel] Received empty or invalid slide list from server.");
+                    Debug.LogWarning("[ZeroBillboard] Received empty or invalid slide list from server.");
                     yield break;
                 }
 
-                List<NewsSlide> newSlides = new List<NewsSlide>();
+                List<BillboardSlide> newSlides = new List<BillboardSlide>();
                 List<Sprite> newSprites = new List<Sprite>();
 
                 for (int i = 0; i < response.slides.Count; i++)
@@ -625,7 +636,7 @@ namespace BillboardTool.UI
                     Color startCol = ParseHexColor(data.bgGradientStart, new Color(0.20f, 0.10f, 0.40f));
                     Color endCol = ParseHexColor(data.bgGradientEnd, new Color(0.80f, 0.20f, 0.60f));
 
-                    NewsSlide slide = new NewsSlide(data.title, data.subtitle, data.badge, startCol, endCol)
+                    BillboardSlide slide = new BillboardSlide(data.title, data.subtitle, data.badge, startCol, endCol)
                     {
                         imageUrl = data.imageUrl,
                         actionUrl = data.actionUrl
@@ -654,7 +665,7 @@ namespace BillboardTool.UI
                                 }
                                 else
                                 {
-                                    Debug.LogWarning($"[NewsCarousel] Failed to load image {data.imageUrl}: {imgReq.error}");
+                                    Debug.LogWarning($"[ZeroBillboard] Failed to load image {data.imageUrl}: {imgReq.error}");
                                 }
                             }
                         }
@@ -681,7 +692,7 @@ namespace BillboardTool.UI
                 currentIndex = Mathf.Clamp(currentIndex, 0, slides.Count - 1);
                 UpdateSlideDisplay(currentIndex, immediate: false);
 
-                Debug.Log($"[NewsCarousel] Successfully updated {slides.Count} carousel slides from web server!");
+                Debug.Log($"[ZeroBillboard] Successfully updated {slides.Count} slides from web server!");
             }
         }
 
@@ -851,8 +862,8 @@ namespace BillboardTool.UI
         {
             if (currentIndex >= 0 && currentIndex < slides.Count)
             {
-                NewsSlide activeSlide = slides[currentIndex];
-                Debug.Log($"[NewsCarousel] Slide clicked: {activeSlide.title}");
+                BillboardSlide activeSlide = slides[currentIndex];
+                Debug.Log($"[ZeroBillboard] Slide clicked: {activeSlide.title}");
                 OnSlideClicked?.Invoke(activeSlide);
 
                 // Open external URL in default browser if provided
@@ -907,7 +918,7 @@ namespace BillboardTool.UI
             transitionCoroutine = null;
         }
 
-        private void ApplySlideData(NewsSlide slide, int index)
+        private void ApplySlideData(BillboardSlide slide, int index)
         {
             if (titleText != null) titleText.text = slide.title;
             if (subtitleText != null) subtitleText.text = slide.subtitle;
@@ -975,5 +986,10 @@ namespace BillboardTool.UI
                 }
             }
         }
+    }
+
+    [System.Obsolete("Use ZeroBillboard instead.")]
+    public class NewsCarousel : ZeroBillboard
+    {
     }
 }

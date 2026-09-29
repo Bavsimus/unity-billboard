@@ -28,7 +28,8 @@ namespace BillboardTool.Editor
             };
         }
 
-        [MenuItem("Tools/Billboard/Create 2D Main Menu Scene")]
+        [MenuItem("Tools/Billboard/Create 2D Main Menu Scene", false, 30)]
+        [MenuItem("Tools/Zero Billboard/Create 2D Main Menu Scene", false, 30)]
         public static void CreateSceneMenu()
         {
             CreateMainMenuScene();
@@ -157,205 +158,9 @@ namespace BillboardTool.Editor
             Text toastText = toastTextObj.GetComponent<Text>();
             toastPanel.SetActive(false);
 
-            // 5b. News Carousel Card (16:9 Widescreen Gamer Carousel matching Web Simulator)
-            GameObject newsCardObj = CreateUIObject("NewsCarouselCard", canvasObj.transform);
-            RectTransform ncRect = newsCardObj.GetComponent<RectTransform>();
-            ncRect.anchorMin = new Vector2(0f, 0f);
-            ncRect.anchorMax = new Vector2(0f, 0f);
-            ncRect.pivot = new Vector2(0f, 0f);
-            ncRect.anchoredPosition = new Vector2(60f, 60f);
-            ncRect.sizeDelta = new Vector2(560f, 315f); // True 16:9 aspect ratio
-
-            Image ncBorderImg = newsCardObj.AddComponent<Image>();
-            ncBorderImg.color = new Color(0.25f, 0.35f, 0.48f, 0.70f);
-
-            Shadow cardShadow = newsCardObj.AddComponent<Shadow>();
-            cardShadow.effectColor = new Color(0f, 0f, 0f, 0.65f);
-            cardShadow.effectDistance = new Vector2(3f, -4f);
-
-            Button ncButton = newsCardObj.AddComponent<Button>();
-            newsCardObj.AddComponent<UIButtonAnimator>();
-
-            // Inner clipping container with rounded corner Mask
-            GameObject innerContainer = CreateUIObject("InnerContainer", newsCardObj.transform);
-            RectTransform icRect = innerContainer.GetComponent<RectTransform>();
-            StretchFull(icRect);
-            icRect.offsetMin = new Vector2(2, 2);
-            icRect.offsetMax = new Vector2(-2, -2);
-            Image maskImg = innerContainer.AddComponent<Image>();
-            Mask mask = innerContainer.AddComponent<Mask>();
-            mask.showMaskGraphic = false;
-
-            // Background Image
-            GameObject bgImageObj = CreateUIObject("SlideBackgroundImage", innerContainer.transform);
-            StretchFull(bgImageObj.GetComponent<RectTransform>());
-            Image slideBgImage = bgImageObj.AddComponent<Image>();
-            slideBgImage.color = Color.white;
-
-            // Smooth vertical vignette overlay (translucent top -> deep dark bottom for text contrast)
-            GameObject gradOverlay = CreateUIObject("VignetteOverlay", innerContainer.transform);
-            RectTransform goRect = gradOverlay.GetComponent<RectTransform>();
-            StretchFull(goRect);
-            Image goImg = gradOverlay.AddComponent<Image>();
-            goImg.sprite = CreateVerticalVignetteSprite(16, 128);
-            goImg.color = Color.white;
-
-            // Animated content container with CanvasGroup for crossfades
-            GameObject contentObj = CreateUIObject("ContentLayer", innerContainer.transform);
-            StretchFull(contentObj.GetComponent<RectTransform>());
-            CanvasGroup contentCg = contentObj.AddComponent<CanvasGroup>();
-
-            // Top Bar: Circular Pagination Dots
-            GameObject dotsContainer = CreateUIObject("DotsContainer", contentObj.transform);
-            RectTransform dcRect = dotsContainer.GetComponent<RectTransform>();
-            dcRect.anchorMin = new Vector2(0f, 1f);
-            dcRect.anchorMax = new Vector2(0f, 1f);
-            dcRect.pivot = new Vector2(0f, 1f);
-            dcRect.anchoredPosition = new Vector2(22f, -18f);
-            dcRect.sizeDelta = new Vector2(160f, 20f);
-
-            HorizontalLayoutGroup hlg = dotsContainer.AddComponent<HorizontalLayoutGroup>();
-            hlg.spacing = 8f;
-            hlg.childAlignment = TextAnchor.MiddleLeft;
-            hlg.childControlWidth = false;
-            hlg.childControlHeight = false;
-
-            Sprite circleSprite = CreateCircleSprite(32);
-            List<Image> dotsList = new List<Image>();
-            List<Button> dotButtons = new List<Button>();
-            for (int i = 0; i < 4; i++)
-            {
-                GameObject dot = CreateUIObject($"Dot_{i}", dotsContainer.transform);
-                RectTransform dotRect = dot.GetComponent<RectTransform>();
-                dotRect.sizeDelta = new Vector2(10f, 10f);
-                Image dotImg = dot.AddComponent<Image>();
-                dotImg.sprite = circleSprite;
-                dotImg.color = (i == 0) ? Color.white : new Color(1f, 1f, 1f, 0.35f);
-                dot.transform.localScale = (i == 0) ? new Vector3(1.3f, 1.3f, 1f) : Vector3.one;
-
-                Button dotBtn = dot.AddComponent<Button>();
-                dotsList.Add(dotImg);
-                dotButtons.Add(dotBtn);
-            }
-
-            // Top Right: "NEWS" Badge Pill
-            GameObject badgeObj = CreateUIObject("NewsBadge", contentObj.transform);
-            RectTransform bRect = badgeObj.GetComponent<RectTransform>();
-            bRect.anchorMin = new Vector2(1f, 1f);
-            bRect.anchorMax = new Vector2(1f, 1f);
-            bRect.pivot = new Vector2(1f, 1f);
-            bRect.anchoredPosition = new Vector2(-18f, -16f);
-            bRect.sizeDelta = new Vector2(74f, 26f);
-
-            Image badgeImg = badgeObj.AddComponent<Image>();
-            badgeImg.sprite = CreateRoundedRectSprite(74, 26, 5f);
-            badgeImg.color = new Color(0.06f, 0.09f, 0.14f, 0.88f);
-
-            GameObject badgeTextObj = CreateTextObject("Text", "NEWS", 11, FontStyle.Bold, new Color(0.86f, 0.92f, 1f), badgeObj.transform);
-            StretchFull(badgeTextObj.GetComponent<RectTransform>());
-            Text badgeText = badgeTextObj.GetComponent<Text>();
-            badgeText.alignment = TextAnchor.MiddleCenter;
-
-            // Bottom Area: Subtitle & Title ("THE BIG BANG")
-            GameObject subTitleTextObj = CreateTextObject("SlideSubtitle", "A NEW BEGINNING • LIVE EVENT", 12, FontStyle.Bold, new Color(0.58f, 0.78f, 1f), contentObj.transform);
-            RectTransform stRect = subTitleTextObj.GetComponent<RectTransform>();
-            stRect.anchorMin = new Vector2(0f, 0f);
-            stRect.anchorMax = new Vector2(1f, 0f);
-            stRect.pivot = new Vector2(0f, 0f);
-            stRect.anchoredPosition = new Vector2(24f, 56f);
-            stRect.sizeDelta = new Vector2(-48f, 22f);
-            Text slideSubText = subTitleTextObj.GetComponent<Text>();
-            slideSubText.alignment = TextAnchor.MiddleLeft;
-
-            Shadow subShadow = subTitleTextObj.AddComponent<Shadow>();
-            subShadow.effectColor = new Color(0f, 0f, 0f, 0.75f);
-            subShadow.effectDistance = new Vector2(1f, -1f);
-
-            GameObject titleTextObj = CreateTextObject("SlideTitle", "THE BIG BANG", 30, FontStyle.Bold, Color.white, contentObj.transform);
-            RectTransform ttRect = titleTextObj.GetComponent<RectTransform>();
-            ttRect.anchorMin = new Vector2(0f, 0f);
-            ttRect.anchorMax = new Vector2(1f, 0f);
-            ttRect.pivot = new Vector2(0f, 0f);
-            ttRect.anchoredPosition = new Vector2(24f, 16f);
-            ttRect.sizeDelta = new Vector2(-48f, 40f);
-            Text slideTitleText = titleTextObj.GetComponent<Text>();
-            slideTitleText.alignment = TextAnchor.MiddleLeft;
-
-            Shadow titleShadow = titleTextObj.AddComponent<Shadow>();
-            titleShadow.effectColor = new Color(0f, 0f, 0f, 0.85f);
-            titleShadow.effectDistance = new Vector2(2f, -2f);
-
-            // Sleek Left / Right Navigation Pill Arrows
-            Sprite navArrowSprite = CreateRoundedRectSprite(32, 50, 6f);
-
-            GameObject btnPrevObj = CreateUIObject("BtnPrevSlide", newsCardObj.transform);
-            RectTransform bpRect = btnPrevObj.GetComponent<RectTransform>();
-            bpRect.anchorMin = new Vector2(0f, 0.5f);
-            bpRect.anchorMax = new Vector2(0f, 0.5f);
-            bpRect.anchoredPosition = new Vector2(16f, 0f);
-            bpRect.sizeDelta = new Vector2(32f, 50f);
-            Button btnPrev = btnPrevObj.AddComponent<Button>();
-            Image bpImg = btnPrevObj.AddComponent<Image>();
-            bpImg.sprite = navArrowSprite;
-            bpImg.color = new Color(0.07f, 0.10f, 0.16f, 0.65f);
-            GameObject bpText = CreateTextObject("Arrow", "‹", 26, FontStyle.Bold, Color.white, btnPrevObj.transform);
-            StretchFull(bpText.GetComponent<RectTransform>());
-
-            GameObject btnNextObj = CreateUIObject("BtnNextSlide", newsCardObj.transform);
-            RectTransform bnRect = btnNextObj.GetComponent<RectTransform>();
-            bnRect.anchorMin = new Vector2(1f, 0.5f);
-            bnRect.anchorMax = new Vector2(1f, 0.5f);
-            bnRect.anchoredPosition = new Vector2(-16f, 0f);
-            bnRect.sizeDelta = new Vector2(32f, 50f);
-            Button btnNext = btnNextObj.AddComponent<Button>();
-            Image bnImg = btnNextObj.AddComponent<Image>();
-            bnImg.sprite = navArrowSprite;
-            bnImg.color = new Color(0.07f, 0.10f, 0.16f, 0.65f);
-            GameObject bnText = CreateTextObject("Arrow", "›", 26, FontStyle.Bold, Color.white, btnNextObj.transform);
-            StretchFull(bnText.GetComponent<RectTransform>());
-
-            // Attach NewsCarousel component and wire serialized references
-            NewsCarousel carousel = newsCardObj.AddComponent<NewsCarousel>();
-            SerializedObject carouselSO = new SerializedObject(carousel);
-            carouselSO.FindProperty("slideBackgroundImage").objectReferenceValue = slideBgImage;
-            carouselSO.FindProperty("titleText").objectReferenceValue = slideTitleText;
-            carouselSO.FindProperty("subtitleText").objectReferenceValue = slideSubText;
-            carouselSO.FindProperty("badgeText").objectReferenceValue = badgeText;
-            carouselSO.FindProperty("contentCanvasGroup").objectReferenceValue = contentCg;
-            carouselSO.FindProperty("dotsContainer").objectReferenceValue = dotsContainer.transform;
-            carouselSO.FindProperty("vignetteOverlayImage").objectReferenceValue = goImg;
-            carouselSO.FindProperty("prevButton").objectReferenceValue = btnPrevObj;
-            carouselSO.FindProperty("nextButton").objectReferenceValue = btnNextObj;
-            carouselSO.FindProperty("cardBorderImage").objectReferenceValue = ncBorderImg;
-            carouselSO.FindProperty("maskImage").objectReferenceValue = maskImg;
-            carouselSO.FindProperty("cardShadow").objectReferenceValue = cardShadow;
-            carouselSO.FindProperty("badgeBackgroundImage").objectReferenceValue = badgeImg;
-            carouselSO.FindProperty("prevButtonImage").objectReferenceValue = bpImg;
-            carouselSO.FindProperty("nextButtonImage").objectReferenceValue = bnImg;
-            carouselSO.FindProperty("fetchRemoteOnStart").boolValue = true;
-            carouselSO.FindProperty("remoteApiUrl").stringValue = "http://localhost:3000/api/carousel";
-
-            SerializedProperty dotsProp = carouselSO.FindProperty("paginationDots");
-            dotsProp.ClearArray();
-            for (int i = 0; i < dotsList.Count; i++)
-            {
-                dotsProp.InsertArrayElementAtIndex(i);
-                dotsProp.GetArrayElementAtIndex(i).objectReferenceValue = dotsList[i];
-            }
-            carouselSO.ApplyModifiedProperties();
-
-            // Apply layout and styling (curved corners, borders, shadows) immediately
-            carousel.ApplyLayoutSettings();
-
-            // Wire Prev / Next & Click
-            UnityEventTools.AddPersistentListener(btnPrev.onClick, carousel.PreviousSlide);
-            UnityEventTools.AddPersistentListener(btnNext.onClick, carousel.NextSlide);
-            UnityEventTools.AddPersistentListener(ncButton.onClick, carousel.HandleSlideClicked);
-
-            for (int i = 0; i < dotButtons.Count; i++)
-            {
-                UnityEventTools.AddIntPersistentListener(dotButtons[i].onClick, carousel.GoToSlide, i);
-            }
+            // 5b. Zero Billboard Widget (16:9 Widescreen Gamer Carousel matching Web Simulator)
+            GameObject billboardObj = ZeroBillboardCreator.BuildZeroBillboard(canvasObj.transform, new Vector2(60f, 60f));
+            ZeroBillboard billboard = billboardObj.GetComponent<ZeroBillboard>();
 
             // 6. Settings Panel
             GameObject settingsPanel = CreateSubCardPanel("SettingsPanel", "SETTINGS", canvasObj.transform);
@@ -438,7 +243,7 @@ namespace BillboardTool.Editor
             so.FindProperty("creditsPanel").objectReferenceValue = creditsPanel;
             so.FindProperty("toastPanel").objectReferenceValue = toastPanel;
             so.FindProperty("toastText").objectReferenceValue = toastText;
-            so.FindProperty("newsCarousel").objectReferenceValue = carousel;
+            so.FindProperty("zeroBillboard").objectReferenceValue = billboard;
             so.FindProperty("volumeSlider").objectReferenceValue = volSlider;
             so.FindProperty("fullscreenToggle").objectReferenceValue = fsToggle;
             so.ApplyModifiedProperties();
