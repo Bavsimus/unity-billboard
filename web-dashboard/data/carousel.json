@@ -1,14 +1,14 @@
 {
-  "version": 5,
+  "version": 6,
   "slides": [
     {
       "id": "slide_1",
-      "title": "deneme",
+      "title": "THE BIG BANG",
       "subtitle": "A NEW BEGINNING • LIVE EVENT",
       "badge": "NEWS",
       "bgGradientStart": "#3d0f70",
       "bgGradientEnd": "#d938a6",
-      "imageUrl": "",
+      "imageUrl": "http://localhost:3000/uploads/slide-1790683121934-966735553.png",
       "actionUrl": "https://github.com/Bavsimus/unity-billboard"
     },
     {
@@ -18,7 +18,7 @@
       "badge": "UPDATE",
       "bgGradientStart": "#144073",
       "bgGradientEnd": "#26bfd9",
-      "imageUrl": "",
+      "imageUrl": "http://localhost:3000/uploads/slide-1790683148980-365510107.png",
       "actionUrl": "https://github.com"
     },
     {
@@ -28,7 +28,7 @@
       "badge": "FEATURE",
       "bgGradientStart": "#66260d",
       "bgGradientEnd": "#f28c1f",
-      "imageUrl": "",
+      "imageUrl": "http://localhost:3000/uploads/slide-1790683079088-681262036.png",
       "actionUrl": "https://unity.com"
     },
     {
@@ -38,9 +38,9 @@
       "badge": "FEATURED",
       "bgGradientStart": "#145938",
       "bgGradientEnd": "#40d98c",
-      "imageUrl": "",
+      "imageUrl": "http://localhost:3000/uploads/slide-1790683087822-766801252.png",
       "actionUrl": "https://store.steampowered.com"
     }
   ],
-  "updatedAt": "2026-09-28T18:07:04.325Z"
+  "updatedAt": "2026-09-29T11:59:24.912Z"
 }

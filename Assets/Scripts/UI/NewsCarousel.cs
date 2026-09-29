@@ -304,11 +304,38 @@ namespace BillboardTool.UI
             return defaultColor;
         }
 
+        private static Sprite sharedCircleSprite;
+
+        private static Sprite GetOrCreateCircleSprite()
+        {
+            if (sharedCircleSprite != null) return sharedCircleSprite;
+
+            int size = 32;
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.filterMode = FilterMode.Bilinear;
+            tex.wrapMode = TextureWrapMode.Clamp;
+            float radius = size * 0.5f;
+            Vector2 center = new Vector2(radius, radius);
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), center);
+                    float alpha = Mathf.Clamp01(radius - dist);
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+            tex.Apply();
+            sharedCircleSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+            return sharedCircleSprite;
+        }
+
         public void RebuildDotsUI()
         {
             if (dotsContainer != null)
             {
-                // Dynamic dot management: ensure dot objects match slides.Count
+                Sprite circleSp = GetOrCreateCircleSprite();
                 int currentDotCount = dotsContainer.childCount;
                 int targetDotCount = slides.Count;
 
@@ -334,10 +361,13 @@ namespace BillboardTool.UI
                         dotObj = new GameObject($"Dot_{i}", typeof(RectTransform), typeof(Image), typeof(Button));
                         dotObj.transform.SetParent(dotsContainer, false);
                         RectTransform rt = dotObj.GetComponent<RectTransform>();
-                        rt.sizeDelta = new Vector2(9f, 9f);
+                        rt.sizeDelta = new Vector2(10f, 10f);
                     }
 
                     Image img = dotObj.GetComponent<Image>();
+                    img.sprite = circleSp;
+                    img.type = Image.Type.Simple;
+
                     Button btn = dotObj.GetComponent<Button>();
 
                     paginationDots.Add(img);
@@ -345,6 +375,18 @@ namespace BillboardTool.UI
                     int targetIndex = i;
                     btn.onClick.RemoveAllListeners();
                     btn.onClick.AddListener(() => GoToSlide(targetIndex));
+                }
+            }
+            else
+            {
+                // Ensure pre-existing dots have circle sprite
+                Sprite circleSp = GetOrCreateCircleSprite();
+                for (int i = 0; i < paginationDots.Count; i++)
+                {
+                    if (paginationDots[i] != null && paginationDots[i].sprite == null)
+                    {
+                        paginationDots[i].sprite = circleSp;
+                    }
                 }
             }
 
@@ -362,7 +404,7 @@ namespace BillboardTool.UI
                 }
                 else
                 {
-                    Texture2D tex = CreateDiagonalGradientTexture(128, 72, slides[i].bgGradientStart, slides[i].bgGradientEnd);
+                    Texture2D tex = CreateDiagonalGradientTexture(256, 144, slides[i].bgGradientStart, slides[i].bgGradientEnd);
                     Sprite sp = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
                     generatedSprites.Add(sp);
                 }
@@ -373,14 +415,16 @@ namespace BillboardTool.UI
         {
             Texture2D tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
             tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
 
             for (int y = 0; y < height; y++)
             {
-                float v = (float)y / height;
+                float v = (float)y / (height - 1); // 0 at bottom, 1 at top
                 for (int x = 0; x < width; x++)
                 {
-                    float u = (float)x / width;
-                    float t = Mathf.Clamp01((u * 0.7f) + (v * 0.7f));
+                    float u = (float)x / (width - 1); // 0 at left, 1 at right
+                    // 135 degrees: top-left (u=0, v=1) -> bottom-right (u=1, v=0)
+                    float t = Mathf.Clamp01((u + (1f - v)) * 0.5f);
                     Color color = Color.Lerp(c1, c2, t);
                     tex.SetPixel(x, y, color);
                 }
