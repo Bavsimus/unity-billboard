@@ -78,6 +78,21 @@ function bindEvents() {
   prevArrow.addEventListener('click', () => stepPreview(-1));
   nextArrow.addEventListener('click', () => stepPreview(1));
 
+  // Mouse Wheel Scroll on Preview Card
+  let lastWebWheelTime = 0;
+  previewSlide.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const now = Date.now();
+    if (now - lastWebWheelTime < 220) return;
+    lastWebWheelTime = now;
+
+    if (e.deltaY > 0) {
+      stepPreview(1);
+    } else if (e.deltaY < 0) {
+      stepPreview(-1);
+    }
+  }, { passive: false });
+
   // Style Tabs
   tabGradient.addEventListener('click', () => setStyleTab('gradient'));
   tabImage.addEventListener('click', () => setStyleTab('image'));

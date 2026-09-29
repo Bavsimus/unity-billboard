@@ -318,6 +318,9 @@ namespace BillboardTool.Editor
             carouselSO.FindProperty("badgeText").objectReferenceValue = badgeText;
             carouselSO.FindProperty("contentCanvasGroup").objectReferenceValue = contentCg;
             carouselSO.FindProperty("dotsContainer").objectReferenceValue = dotsContainer.transform;
+            carouselSO.FindProperty("vignetteOverlayImage").objectReferenceValue = goImg;
+            carouselSO.FindProperty("prevButton").objectReferenceValue = btnPrevObj;
+            carouselSO.FindProperty("nextButton").objectReferenceValue = btnNextObj;
             carouselSO.FindProperty("fetchRemoteOnStart").boolValue = true;
             carouselSO.FindProperty("remoteApiUrl").stringValue = "http://localhost:3000/api/carousel";
 

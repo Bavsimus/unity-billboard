@@ -4,15 +4,16 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 
 namespace BillboardTool.UI
 {
     /// <summary>
     /// Interactive News Carousel / Slideshow widget inspired by Fortnite's "THE BIG BANG" news banner.
     /// Supports remote live CMS updates over HTTP, image downloads, dynamic pagination dots,
-    /// auto-sliding, smooth crossfades, and click callbacks (with action URLs).
+    /// mouse wheel scrolling, auto-sliding, smooth crossfades, and click callbacks (with action URLs).
     /// </summary>
-    public class NewsCarousel : MonoBehaviour
+    public class NewsCarousel : MonoBehaviour, IScrollHandler
     {
         [System.Serializable]
         public class NewsSlide
@@ -57,6 +58,67 @@ namespace BillboardTool.UI
             public List<RemoteSlideData> slides;
         }
 
+        public enum CardSizePreset
+        {
+            Custom,
+            Compact_440x248,
+            Standard_560x315,
+            Large_640x360,
+            Cinema_720x405
+        }
+
+        public enum CardAnchorPreset
+        {
+            BottomLeft,
+            BottomRight,
+            BottomCenter,
+            TopLeft,
+            TopRight,
+            Center
+        }
+
+        [Header("Layout & Sizing Controls")]
+        [Tooltip("Quick presets for standard 16:9 carousel dimensions.")]
+        [SerializeField] private CardSizePreset sizePreset = CardSizePreset.Standard_560x315;
+        [Tooltip("Custom size in pixels for the carousel card.")]
+        [SerializeField] private Vector2 cardSize = new Vector2(560f, 315f);
+        [Tooltip("If true, changing width in custom mode automatically locks the card to a 16:9 aspect ratio.")]
+        [SerializeField] private bool lock16x9AspectRatio = true;
+        [Tooltip("Screen anchor location on the Canvas.")]
+        [SerializeField] private CardAnchorPreset anchorPosition = CardAnchorPreset.BottomLeft;
+        [Tooltip("Margin/Padding distance from screen edges.")]
+        [SerializeField] private Vector2 screenMargin = new Vector2(60f, 60f);
+
+        [Header("Visual Styling & Controls")]
+        [Range(0f, 1f)]
+        [Tooltip("Strength/opacity of the bottom dark text vignette overlay.")]
+        [SerializeField] private float vignetteStrength = 1f;
+        [Tooltip("Toggle visibility of left/right arrow buttons.")]
+        [SerializeField] private bool showNavigationArrows = true;
+        [Tooltip("Diameter of pagination dots in pixels.")]
+        [SerializeField] private float dotSize = 10f;
+        [Tooltip("Spacing between pagination dots.")]
+        [SerializeField] private float dotSpacing = 8f;
+
+        [Header("Typography Scaling")]
+        [Tooltip("If true, fonts automatically scale proportionally when you resize the carousel card.")]
+        [SerializeField] private bool autoScaleFonts = true;
+        [SerializeField] private int titleFontSize = 30;
+        [SerializeField] private int subtitleFontSize = 12;
+        [SerializeField] private int badgeFontSize = 11;
+
+        [Header("Animation & Transitions")]
+        [Tooltip("Duration in seconds for the smooth crossfade slide transition.")]
+        [SerializeField] private float crossfadeDuration = 0.22f;
+
+        [Header("Mouse Wheel Scroll")]
+        [Tooltip("Enable navigating slides with mouse wheel scroll.")]
+        [SerializeField] private bool enableMouseScroll = true;
+        [Tooltip("Cooldown in seconds between mouse wheel scroll slide triggers.")]
+        [SerializeField] private float scrollCooldown = 0.22f;
+        [Tooltip("Invert mouse scroll direction.")]
+        [SerializeField] private bool invertMouseScroll = false;
+
         [Header("Remote CMS Configuration")]
         [Tooltip("If true, automatically fetches slides from the web server when initialized.")]
         [SerializeField] private bool fetchRemoteOnStart = true;
@@ -72,10 +134,13 @@ namespace BillboardTool.UI
 
         [Header("UI References")]
         [SerializeField] private Image slideBackgroundImage;
+        [SerializeField] private Image vignetteOverlayImage;
         [SerializeField] private Text titleText;
         [SerializeField] private Text subtitleText;
         [SerializeField] private Text badgeText;
         [SerializeField] private Transform dotsContainer;
+        [SerializeField] private GameObject prevButton;
+        [SerializeField] private GameObject nextButton;
         [SerializeField] private List<Image> paginationDots = new List<Image>();
         [SerializeField] private CanvasGroup contentCanvasGroup;
 
@@ -97,8 +162,135 @@ namespace BillboardTool.UI
         public int SlideCount => slides != null ? slides.Count : 0;
         public string RemoteApiUrl { get => remoteApiUrl; set => remoteApiUrl = value; }
 
+        public void ApplyLayoutSettings()
+        {
+            RectTransform rt = GetComponent<RectTransform>();
+            if (rt == null) return;
+
+            // 1. Calculate target size
+            Vector2 targetSize = cardSize;
+            switch (sizePreset)
+            {
+                case CardSizePreset.Compact_440x248:
+                    targetSize = new Vector2(440f, 247.5f);
+                    break;
+                case CardSizePreset.Standard_560x315:
+                    targetSize = new Vector2(560f, 315f);
+                    break;
+                case CardSizePreset.Large_640x360:
+                    targetSize = new Vector2(640f, 360f);
+                    break;
+                case CardSizePreset.Cinema_720x405:
+                    targetSize = new Vector2(720f, 405f);
+                    break;
+                case CardSizePreset.Custom:
+                    if (lock16x9AspectRatio && targetSize.x > 0)
+                    {
+                        targetSize.y = Mathf.Round(targetSize.x * 9f / 16f);
+                    }
+                    break;
+            }
+            cardSize = targetSize;
+            rt.sizeDelta = targetSize;
+
+            // 2. Apply Anchors and Pivot
+            switch (anchorPosition)
+            {
+                case CardAnchorPreset.BottomLeft:
+                    rt.anchorMin = Vector2.zero;
+                    rt.anchorMax = Vector2.zero;
+                    rt.pivot = Vector2.zero;
+                    rt.anchoredPosition = new Vector2(screenMargin.x, screenMargin.y);
+                    break;
+                case CardAnchorPreset.BottomRight:
+                    rt.anchorMin = new Vector2(1f, 0f);
+                    rt.anchorMax = new Vector2(1f, 0f);
+                    rt.pivot = new Vector2(1f, 0f);
+                    rt.anchoredPosition = new Vector2(-screenMargin.x, screenMargin.y);
+                    break;
+                case CardAnchorPreset.BottomCenter:
+                    rt.anchorMin = new Vector2(0.5f, 0f);
+                    rt.anchorMax = new Vector2(0.5f, 0f);
+                    rt.pivot = new Vector2(0.5f, 0f);
+                    rt.anchoredPosition = new Vector2(0f, screenMargin.y);
+                    break;
+                case CardAnchorPreset.TopLeft:
+                    rt.anchorMin = new Vector2(0f, 1f);
+                    rt.anchorMax = new Vector2(0f, 1f);
+                    rt.pivot = new Vector2(0f, 1f);
+                    rt.anchoredPosition = new Vector2(screenMargin.x, -screenMargin.y);
+                    break;
+                case CardAnchorPreset.TopRight:
+                    rt.anchorMin = Vector2.one;
+                    rt.anchorMax = Vector2.one;
+                    rt.pivot = Vector2.one;
+                    rt.anchoredPosition = new Vector2(-screenMargin.x, -screenMargin.y);
+                    break;
+                case CardAnchorPreset.Center:
+                    rt.anchorMin = new Vector2(0.5f, 0.5f);
+                    rt.anchorMax = new Vector2(0.5f, 0.5f);
+                    rt.pivot = new Vector2(0.5f, 0.5f);
+                    rt.anchoredPosition = screenMargin;
+                    break;
+            }
+
+            // 3. Vignette strength
+            if (vignetteOverlayImage != null)
+            {
+                Color c = vignetteOverlayImage.color;
+                c.a = vignetteStrength;
+                vignetteOverlayImage.color = c;
+            }
+
+            // 4. Arrow buttons visibility
+            if (prevButton != null) prevButton.SetActive(showNavigationArrows);
+            if (nextButton != null) nextButton.SetActive(showNavigationArrows);
+
+            // 5. Typography scaling
+            float scaleFactor = targetSize.x / 560f;
+            if (autoScaleFonts)
+            {
+                if (titleText != null) titleText.fontSize = Mathf.Clamp(Mathf.RoundToInt(30f * scaleFactor), 18, 56);
+                if (subtitleText != null) subtitleText.fontSize = Mathf.Clamp(Mathf.RoundToInt(12f * scaleFactor), 9, 24);
+                if (badgeText != null) badgeText.fontSize = Mathf.Clamp(Mathf.RoundToInt(11f * scaleFactor), 8, 20);
+            }
+            else
+            {
+                if (titleText != null) titleText.fontSize = titleFontSize;
+                if (subtitleText != null) subtitleText.fontSize = subtitleFontSize;
+                if (badgeText != null) badgeText.fontSize = badgeFontSize;
+            }
+
+            // 6. Dots layout
+            if (dotsContainer != null)
+            {
+                HorizontalLayoutGroup hlg = dotsContainer.GetComponent<HorizontalLayoutGroup>();
+                if (hlg != null) hlg.spacing = dotSpacing;
+                for (int i = 0; i < dotsContainer.childCount; i++)
+                {
+                    RectTransform dotRt = dotsContainer.GetChild(i) as RectTransform;
+                    if (dotRt != null) dotRt.sizeDelta = new Vector2(dotSize, dotSize);
+                }
+            }
+        }
+
+#if UNITY_EDITOR
+        private void OnValidate()
+        {
+            UnityEditor.EditorApplication.delayCall += () =>
+            {
+                if (this != null)
+                {
+                    ApplyLayoutSettings();
+                }
+            };
+        }
+#endif
+
         private void Awake()
         {
+            ApplyLayoutSettings();
+
             if (slides.Count == 0)
             {
                 // Default Fortnite / Game style demo fallback slides
@@ -156,6 +348,56 @@ namespace BillboardTool.UI
             if (autoRefreshInterval > 0f)
             {
                 autoRefreshCoroutine = StartCoroutine(AutoRefreshRoutine());
+            }
+        }
+
+        private float lastScrollTime = 0f;
+
+        private void Update()
+        {
+            if (enableMouseScroll)
+            {
+                CheckHoverScrollInput();
+            }
+        }
+
+        private void CheckHoverScrollInput()
+        {
+            float scroll = Input.mouseScrollDelta.y;
+            if (Mathf.Abs(scroll) < 0.1f) return;
+            if (Time.unscaledTime - lastScrollTime < scrollCooldown) return;
+
+            RectTransform rt = GetComponent<RectTransform>();
+            if (rt != null && RectTransformUtility.RectangleContainsScreenPoint(rt, Input.mousePosition, null))
+            {
+                TriggerScrollSlide(scroll);
+            }
+        }
+
+        public void OnScroll(PointerEventData eventData)
+        {
+            if (!enableMouseScroll) return;
+            if (Time.unscaledTime - lastScrollTime < scrollCooldown) return;
+
+            float scroll = eventData.scrollDelta.y;
+            if (Mathf.Abs(scroll) < 0.05f) return;
+
+            TriggerScrollSlide(scroll);
+        }
+
+        private void TriggerScrollSlide(float deltaY)
+        {
+            if (invertMouseScroll) deltaY = -deltaY;
+
+            if (deltaY < 0f)
+            {
+                NextSlide();
+                lastScrollTime = Time.unscaledTime;
+            }
+            else if (deltaY > 0f)
+            {
+                PreviousSlide();
+                lastScrollTime = Time.unscaledTime;
             }
         }
 
@@ -492,7 +734,7 @@ namespace BillboardTool.UI
 
         private IEnumerator CrossfadeRoutine(int targetIndex)
         {
-            float duration = 0.22f;
+            float duration = Mathf.Max(0.05f, crossfadeDuration);
 
             // Fade out
             for (float t = 0; t < duration; t += Time.unscaledDeltaTime)
