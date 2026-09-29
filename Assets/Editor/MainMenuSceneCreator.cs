@@ -167,19 +167,24 @@ namespace BillboardTool.Editor
             ncRect.sizeDelta = new Vector2(560f, 315f); // True 16:9 aspect ratio
 
             Image ncBorderImg = newsCardObj.AddComponent<Image>();
-            ncBorderImg.sprite = CreateRoundedRectSprite(128, 72, 8f);
-            ncBorderImg.color = new Color(0.25f, 0.32f, 0.44f, 0.65f); // Subtle card outer frame
+            ncBorderImg.color = new Color(0.25f, 0.35f, 0.48f, 0.70f);
+
+            Shadow cardShadow = newsCardObj.AddComponent<Shadow>();
+            cardShadow.effectColor = new Color(0f, 0f, 0f, 0.65f);
+            cardShadow.effectDistance = new Vector2(3f, -4f);
 
             Button ncButton = newsCardObj.AddComponent<Button>();
             newsCardObj.AddComponent<UIButtonAnimator>();
 
-            // Inner clipping container
+            // Inner clipping container with rounded corner Mask
             GameObject innerContainer = CreateUIObject("InnerContainer", newsCardObj.transform);
             RectTransform icRect = innerContainer.GetComponent<RectTransform>();
             StretchFull(icRect);
             icRect.offsetMin = new Vector2(2, 2);
             icRect.offsetMax = new Vector2(-2, -2);
-            innerContainer.AddComponent<RectMask2D>();
+            Image maskImg = innerContainer.AddComponent<Image>();
+            Mask mask = innerContainer.AddComponent<Mask>();
+            mask.showMaskGraphic = false;
 
             // Background Image
             GameObject bgImageObj = CreateUIObject("SlideBackgroundImage", innerContainer.transform);
@@ -321,6 +326,12 @@ namespace BillboardTool.Editor
             carouselSO.FindProperty("vignetteOverlayImage").objectReferenceValue = goImg;
             carouselSO.FindProperty("prevButton").objectReferenceValue = btnPrevObj;
             carouselSO.FindProperty("nextButton").objectReferenceValue = btnNextObj;
+            carouselSO.FindProperty("cardBorderImage").objectReferenceValue = ncBorderImg;
+            carouselSO.FindProperty("maskImage").objectReferenceValue = maskImg;
+            carouselSO.FindProperty("cardShadow").objectReferenceValue = cardShadow;
+            carouselSO.FindProperty("badgeBackgroundImage").objectReferenceValue = badgeImg;
+            carouselSO.FindProperty("prevButtonImage").objectReferenceValue = bpImg;
+            carouselSO.FindProperty("nextButtonImage").objectReferenceValue = bnImg;
             carouselSO.FindProperty("fetchRemoteOnStart").boolValue = true;
             carouselSO.FindProperty("remoteApiUrl").stringValue = "http://localhost:3000/api/carousel";
 
@@ -332,6 +343,9 @@ namespace BillboardTool.Editor
                 dotsProp.GetArrayElementAtIndex(i).objectReferenceValue = dotsList[i];
             }
             carouselSO.ApplyModifiedProperties();
+
+            // Apply layout and styling (curved corners, borders, shadows) immediately
+            carousel.ApplyLayoutSettings();
 
             // Wire Prev / Next & Click
             UnityEventTools.AddPersistentListener(btnPrev.onClick, carousel.PreviousSlide);

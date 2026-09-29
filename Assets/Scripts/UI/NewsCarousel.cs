@@ -89,16 +89,53 @@ namespace BillboardTool.UI
         [Tooltip("Margin/Padding distance from screen edges.")]
         [SerializeField] private Vector2 screenMargin = new Vector2(60f, 60f);
 
-        [Header("Visual Styling & Controls")]
+        [Header("Curved Corners & Frame Styling")]
+        [Range(0f, 32f)]
+        [Tooltip("Curved corner radius in pixels for the carousel card.")]
+        [SerializeField] private float cornerRadius = 14f;
+
+        [Tooltip("Toggle visible card outer border.")]
+        [SerializeField] private bool showBorder = true;
+        [Range(0f, 8f)]
+        [Tooltip("Thickness in pixels of the outer card border frame.")]
+        [SerializeField] private float borderWidth = 2f;
+        [Tooltip("Color of the outer border frame.")]
+        [SerializeField] private Color borderColor = new Color(0.25f, 0.35f, 0.48f, 0.70f);
+
+        [Tooltip("Show a soft drop shadow behind the card.")]
+        [SerializeField] private bool showCardShadow = true;
+        [SerializeField] private Color cardShadowColor = new Color(0f, 0f, 0f, 0.65f);
+        [SerializeField] private Vector2 cardShadowOffset = new Vector2(3f, -4f);
+
+        [Header("Visual Styling & Overlays")]
         [Range(0f, 1f)]
         [Tooltip("Strength/opacity of the bottom dark text vignette overlay.")]
         [SerializeField] private float vignetteStrength = 1f;
+        [SerializeField] private Color vignetteColor = new Color(0.04f, 0.06f, 0.10f, 1f);
+
         [Tooltip("Toggle visibility of left/right arrow buttons.")]
         [SerializeField] private bool showNavigationArrows = true;
+        [Range(0f, 16f)]
+        [SerializeField] private float arrowCornerRadius = 6f;
+        [SerializeField] private Color arrowBackgroundColor = new Color(0.07f, 0.10f, 0.16f, 0.65f);
+        [SerializeField] private Color arrowIconColor = Color.white;
+
+        [Tooltip("Toggle visibility of the category badge (e.g. NEWS).")]
+        [SerializeField] private bool showBadge = true;
+        [Range(0f, 12f)]
+        [SerializeField] private float badgeCornerRadius = 5f;
+        [SerializeField] private Color badgeBackgroundColor = new Color(0.06f, 0.09f, 0.14f, 0.88f);
+        [SerializeField] private Color badgeTextColor = new Color(0.86f, 0.92f, 1f);
+
+        [Header("Pagination Dots")]
         [Tooltip("Diameter of pagination dots in pixels.")]
         [SerializeField] private float dotSize = 10f;
         [Tooltip("Spacing between pagination dots.")]
         [SerializeField] private float dotSpacing = 8f;
+        [SerializeField] private Color activeDotColor = Color.white;
+        [SerializeField] private Color inactiveDotColor = new Color(1f, 1f, 1f, 0.35f);
+        [Range(1f, 2f)]
+        [SerializeField] private float activeDotScale = 1.3f;
 
         [Header("Typography Scaling")]
         [Tooltip("If true, fonts automatically scale proportionally when you resize the carousel card.")]
@@ -133,20 +170,22 @@ namespace BillboardTool.UI
         [SerializeField] private bool autoAdvance = true;
 
         [Header("UI References")]
+        [SerializeField] private Image cardBorderImage;
+        [SerializeField] private Image maskImage;
+        [SerializeField] private Shadow cardShadow;
         [SerializeField] private Image slideBackgroundImage;
         [SerializeField] private Image vignetteOverlayImage;
         [SerializeField] private Text titleText;
         [SerializeField] private Text subtitleText;
         [SerializeField] private Text badgeText;
+        [SerializeField] private Image badgeBackgroundImage;
         [SerializeField] private Transform dotsContainer;
         [SerializeField] private GameObject prevButton;
         [SerializeField] private GameObject nextButton;
+        [SerializeField] private Image prevButtonImage;
+        [SerializeField] private Image nextButtonImage;
         [SerializeField] private List<Image> paginationDots = new List<Image>();
         [SerializeField] private CanvasGroup contentCanvasGroup;
-
-        [Header("Dot Colors")]
-        [SerializeField] private Color activeDotColor = Color.white;
-        [SerializeField] private Color inactiveDotColor = new Color(1f, 1f, 1f, 0.35f);
 
         public event Action<NewsSlide> OnSlideClicked;
 
@@ -157,15 +196,61 @@ namespace BillboardTool.UI
         private Coroutine autoRefreshCoroutine;
         private List<Sprite> generatedSprites = new List<Sprite>();
         private static readonly Dictionary<string, Texture2D> textureCache = new Dictionary<string, Texture2D>();
+        private static readonly Dictionary<int, Sprite> slicedSpriteCache = new Dictionary<int, Sprite>();
 
         public int CurrentIndex => currentIndex;
         public int SlideCount => slides != null ? slides.Count : 0;
         public string RemoteApiUrl { get => remoteApiUrl; set => remoteApiUrl = value; }
 
+        public static Sprite GetOrCreateSlicedRoundedSprite(int radius)
+        {
+            if (radius <= 0) return null;
+            if (slicedSpriteCache.TryGetValue(radius, out Sprite cached) && cached != null)
+            {
+                return cached;
+            }
+
+            int size = Mathf.Max(radius * 2 + 4, 16);
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.filterMode = FilterMode.Bilinear;
+            tex.wrapMode = TextureWrapMode.Clamp;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = Mathf.Max(0, Mathf.Abs(x - size * 0.5f) - (size * 0.5f - radius));
+                    float dy = Mathf.Max(0, Mathf.Abs(y - size * 0.5f) - (size * 0.5f - radius));
+                    float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                    float alpha = Mathf.Clamp01(radius - dist);
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+            tex.Apply();
+
+            Vector4 border = new Vector4(radius, radius, radius, radius);
+            Sprite sp = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, border);
+            slicedSpriteCache[radius] = sp;
+            return sp;
+        }
+
         public void ApplyLayoutSettings()
         {
             RectTransform rt = GetComponent<RectTransform>();
             if (rt == null) return;
+
+            // Auto-detect UI components if unassigned
+            if (cardBorderImage == null) cardBorderImage = GetComponent<Image>();
+            if (cardShadow == null) cardShadow = GetComponent<Shadow>();
+            if (maskImage == null)
+            {
+                Transform inner = transform.Find("InnerContainer");
+                if (inner != null) maskImage = inner.GetComponent<Image>();
+            }
+            if (prevButtonImage == null && prevButton != null) prevButtonImage = prevButton.GetComponent<Image>();
+            if (nextButtonImage == null && nextButton != null) nextButtonImage = nextButton.GetComponent<Image>();
+            if (badgeBackgroundImage == null && badgeText != null && badgeText.transform.parent != null)
+                badgeBackgroundImage = badgeText.transform.parent.GetComponent<Image>();
 
             // 1. Calculate target size
             Vector2 targetSize = cardSize;
@@ -234,19 +319,84 @@ namespace BillboardTool.UI
                     break;
             }
 
-            // 3. Vignette strength
+            // 3. Curved Corners & Outer Border
+            int cr = Mathf.RoundToInt(cornerRadius);
+            Sprite cardRoundedSprite = GetOrCreateSlicedRoundedSprite(cr);
+
+            if (cardBorderImage != null)
+            {
+                cardBorderImage.enabled = showBorder;
+                cardBorderImage.sprite = cardRoundedSprite;
+                cardBorderImage.type = (cardRoundedSprite != null) ? Image.Type.Sliced : Image.Type.Simple;
+                cardBorderImage.color = borderColor;
+            }
+
+            // 4. Inner Container Masking (Clips slide images to curved corners)
+            if (maskImage != null)
+            {
+                maskImage.sprite = cardRoundedSprite;
+                maskImage.type = (cardRoundedSprite != null) ? Image.Type.Sliced : Image.Type.Simple;
+
+                RectTransform maskRt = maskImage.rectTransform;
+                float bw = (showBorder && borderWidth > 0f) ? borderWidth : 0f;
+                maskRt.offsetMin = new Vector2(bw, bw);
+                maskRt.offsetMax = new Vector2(-bw, -bw);
+
+                Mask mask = maskImage.GetComponent<Mask>();
+                if (mask != null) mask.showMaskGraphic = false;
+            }
+
+            // 5. Card Drop Shadow
+            if (cardShadow != null)
+            {
+                cardShadow.enabled = showCardShadow;
+                cardShadow.effectColor = cardShadowColor;
+                cardShadow.effectDistance = cardShadowOffset;
+            }
+
+            // 6. Vignette overlay
             if (vignetteOverlayImage != null)
             {
-                Color c = vignetteOverlayImage.color;
+                Color c = vignetteColor;
                 c.a = vignetteStrength;
                 vignetteOverlayImage.color = c;
             }
 
-            // 4. Arrow buttons visibility
+            // 7. Navigation Arrows
             if (prevButton != null) prevButton.SetActive(showNavigationArrows);
             if (nextButton != null) nextButton.SetActive(showNavigationArrows);
 
-            // 5. Typography scaling
+            int ar = Mathf.RoundToInt(arrowCornerRadius);
+            Sprite arrowSp = GetOrCreateSlicedRoundedSprite(ar);
+            if (prevButtonImage != null)
+            {
+                prevButtonImage.sprite = arrowSp;
+                prevButtonImage.type = (arrowSp != null) ? Image.Type.Sliced : Image.Type.Simple;
+                prevButtonImage.color = arrowBackgroundColor;
+            }
+            if (nextButtonImage != null)
+            {
+                nextButtonImage.sprite = arrowSp;
+                nextButtonImage.type = (arrowSp != null) ? Image.Type.Sliced : Image.Type.Simple;
+                nextButtonImage.color = arrowBackgroundColor;
+            }
+
+            // 8. Badge Styling
+            if (badgeBackgroundImage != null)
+            {
+                badgeBackgroundImage.gameObject.SetActive(showBadge);
+                int br = Mathf.RoundToInt(badgeCornerRadius);
+                Sprite badgeSp = GetOrCreateSlicedRoundedSprite(br);
+                badgeBackgroundImage.sprite = badgeSp;
+                badgeBackgroundImage.type = (badgeSp != null) ? Image.Type.Sliced : Image.Type.Simple;
+                badgeBackgroundImage.color = badgeBackgroundColor;
+            }
+            if (badgeText != null)
+            {
+                badgeText.color = badgeTextColor;
+            }
+
+            // 9. Typography scaling
             float scaleFactor = targetSize.x / 560f;
             if (autoScaleFonts)
             {
@@ -261,7 +411,7 @@ namespace BillboardTool.UI
                 if (badgeText != null) badgeText.fontSize = badgeFontSize;
             }
 
-            // 6. Dots layout
+            // 10. Dots layout
             if (dotsContainer != null)
             {
                 HorizontalLayoutGroup hlg = dotsContainer.GetComponent<HorizontalLayoutGroup>();
@@ -785,7 +935,7 @@ namespace BillboardTool.UI
                 {
                     bool isActive = (i == activeIndex);
                     paginationDots[i].color = isActive ? activeDotColor : inactiveDotColor;
-                    paginationDots[i].transform.localScale = isActive ? new Vector3(1.25f, 1.25f, 1f) : Vector3.one;
+                    paginationDots[i].transform.localScale = isActive ? new Vector3(activeDotScale, activeDotScale, 1f) : Vector3.one;
                 }
             }
         }
