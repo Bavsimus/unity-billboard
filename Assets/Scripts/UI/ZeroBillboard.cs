@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.UI;
@@ -174,6 +175,8 @@ namespace BillboardTool.UI
         [SerializeField] private string remoteApiUrl = "http://localhost:3000/api/carousel";
         [Tooltip("Interval in seconds to re-fetch slides in the background. Set to 0 to fetch only once on startup.")]
         [SerializeField] private float autoRefreshInterval = 0f;
+        [Tooltip("If true, the card stays hidden until the slides from the web server have loaded, so the local placeholder slides are never shown. If the server can't be reached, the card stays hidden.")]
+        [SerializeField] private bool hideUntilRemoteLoaded = true;
 
         [Header("Slides Configuration")]
         [SerializeField] private List<BillboardSlide> slides = new List<BillboardSlide>();
@@ -208,6 +211,35 @@ namespace BillboardTool.UI
         private List<Sprite> generatedSprites = new List<Sprite>();
         private static readonly Dictionary<string, Texture2D> textureCache = new Dictionary<string, Texture2D>();
         private static readonly Dictionary<int, Sprite> slicedSpriteCache = new Dictionary<int, Sprite>();
+
+        // Slides of the last successful fetch per endpoint, so a scene reload shows them at once.
+        private static readonly Dictionary<string, List<BillboardSlide>> remoteSlidesCache = new Dictionary<string, List<BillboardSlide>>();
+        private CanvasGroup rootCanvasGroup;
+        private bool hasStarted;
+        private bool waitingForRemote;
+        private bool hasRemoteSlides;
+
+        /// <summary>True while the card is hidden because the remote slides have not arrived yet.</summary>
+        public bool IsWaitingForRemote => waitingForRemote;
+        /// <summary>True when this card is set up to take its slides from the web server.</summary>
+        public bool ExpectsRemoteSlides => fetchRemoteOnStart && !string.IsNullOrEmpty(remoteApiUrl);
+        /// <summary>True once the slides on show are the web server's, not the local placeholders.</summary>
+        public bool HasRemoteSlides => hasRemoteSlides;
+        /// <summary>A host that draws the billboard itself turns this off and waits on <see cref="HasRemoteSlides"/>.</summary>
+        public bool HideUntilRemoteLoaded
+        {
+            get => hideUntilRemoteLoaded;
+            set
+            {
+                hideUntilRemoteLoaded = value;
+                if (!value && waitingForRemote) SetCardHidden(false);
+            }
+        }
+
+        // Downloaded banner images are kept on disk so they are only fetched once per
+        // machine instead of on every game launch.
+        private const string DiskCacheFolder = "ZeroBillboardCache";
+        private const double DiskCacheMaxAgeDays = 30.0;
 
         public int CurrentIndex => currentIndex;
         public int SlideCount => slides != null ? slides.Count : 0;
@@ -258,10 +290,58 @@ namespace BillboardTool.UI
                 Transform inner = transform.Find("InnerContainer");
                 if (inner != null) maskImage = inner.GetComponent<Image>();
             }
+            if (slideBackgroundImage == null)
+            {
+                Transform bg = transform.Find("InnerContainer/SlideBackgroundImage");
+                if (bg != null) slideBackgroundImage = bg.GetComponent<Image>();
+            }
+            if (vignetteOverlayImage == null)
+            {
+                Transform vo = transform.Find("InnerContainer/VignetteOverlay");
+                if (vo != null) vignetteOverlayImage = vo.GetComponent<Image>();
+            }
+            if (contentCanvasGroup == null)
+            {
+                Transform cl = transform.Find("InnerContainer/ContentLayer");
+                if (cl != null) contentCanvasGroup = cl.GetComponent<CanvasGroup>();
+            }
+            if (titleText == null)
+            {
+                Transform t = transform.Find("InnerContainer/ContentLayer/SlideTitle");
+                if (t != null) titleText = t.GetComponent<Text>();
+            }
+            if (subtitleText == null)
+            {
+                Transform st = transform.Find("InnerContainer/ContentLayer/SlideSubtitle");
+                if (st != null) subtitleText = st.GetComponent<Text>();
+            }
+            if (badgeText == null)
+            {
+                Transform bt = transform.Find("InnerContainer/ContentLayer/NewsBadge/Text");
+                if (bt != null) badgeText = bt.GetComponent<Text>();
+            }
+            if (badgeBackgroundImage == null)
+            {
+                Transform nb = transform.Find("InnerContainer/ContentLayer/NewsBadge");
+                if (nb != null) badgeBackgroundImage = nb.GetComponent<Image>();
+            }
+            if (dotsContainer == null)
+            {
+                Transform dc = transform.Find("InnerContainer/ContentLayer/DotsContainer");
+                if (dc != null) dotsContainer = dc;
+            }
+            if (prevButton == null)
+            {
+                Transform pb = transform.Find("BtnPrevSlide");
+                if (pb != null) prevButton = pb.gameObject;
+            }
+            if (nextButton == null)
+            {
+                Transform nb = transform.Find("BtnNextSlide");
+                if (nb != null) nextButton = nb.gameObject;
+            }
             if (prevButtonImage == null && prevButton != null) prevButtonImage = prevButton.GetComponent<Image>();
             if (nextButtonImage == null && nextButton != null) nextButtonImage = nextButton.GetComponent<Image>();
-            if (badgeBackgroundImage == null && badgeText != null && badgeText.transform.parent != null)
-                badgeBackgroundImage = badgeText.transform.parent.GetComponent<Image>();
 
             // 1. Calculate target size
             Vector2 targetSize = cardSize;
@@ -347,6 +427,10 @@ namespace BillboardTool.UI
             {
                 maskImage.sprite = cardRoundedSprite;
                 maskImage.type = (cardRoundedSprite != null) ? Image.Type.Sliced : Image.Type.Simple;
+                maskImage.color = Color.white;
+
+                CanvasRenderer maskCr = maskImage.GetComponent<CanvasRenderer>();
+                if (maskCr != null) maskCr.cullTransparentMesh = false;
 
                 RectTransform maskRt = maskImage.rectTransform;
                 float bw = (showBorder && borderWidth > 0f) ? borderWidth : 0f;
@@ -354,7 +438,11 @@ namespace BillboardTool.UI
                 maskRt.offsetMax = new Vector2(-bw, -bw);
 
                 Mask mask = maskImage.GetComponent<Mask>();
-                if (mask != null) mask.showMaskGraphic = false;
+                if (mask != null)
+                {
+                    mask.enabled = (cornerRadius > 0f);
+                    mask.showMaskGraphic = false;
+                }
             }
 
             // 5. Card Drop Shadow
@@ -369,8 +457,9 @@ namespace BillboardTool.UI
             if (vignetteOverlayImage != null)
             {
                 Color c = vignetteColor;
-                c.a = vignetteStrength;
+                c.a = vignetteStrength * 0.75f;
                 vignetteOverlayImage.color = c;
+                vignetteOverlayImage.raycastTarget = false;
             }
 
             // 7. Navigation Arrows
@@ -443,8 +532,127 @@ namespace BillboardTool.UI
                 if (this != null)
                 {
                     ApplyLayoutSettings();
+                    if (!Application.isPlaying && slides != null && slides.Count > 0)
+                    {
+                        GenerateProceduralGradients();
+                        UpdateSlideDisplay(Mathf.Clamp(currentIndex, 0, slides.Count - 1), immediate: true);
+                    }
                 }
             };
+        }
+
+        [ContextMenu("Sync from Web Dashboard Now")]
+        public void EditorSyncFromWeb()
+        {
+            string targetUrl = remoteApiUrl != null ? remoteApiUrl.Trim() : "";
+            if (string.IsNullOrEmpty(targetUrl))
+            {
+                Debug.LogWarning("[ZeroBillboard] remoteApiUrl is empty! Set it to http://localhost:3000/api/carousel");
+                return;
+            }
+
+            if (!targetUrl.Contains("/api/carousel") && !targetUrl.Contains("/api/billboard"))
+            {
+                if (targetUrl.EndsWith("/")) targetUrl = targetUrl.Substring(0, targetUrl.Length - 1);
+                targetUrl += "/api/carousel";
+            }
+
+            UnityEditor.EditorUtility.DisplayProgressBar("Zero Billboard", "Connecting to " + targetUrl, 0.15f);
+            try
+            {
+                using (UnityWebRequest req = UnityWebRequest.Get(targetUrl))
+                {
+                    req.timeout = 10;
+                    var op = req.SendWebRequest();
+                    while (!op.isDone)
+                    {
+                        System.Threading.Thread.Sleep(20);
+                    }
+
+                    if (req.result != UnityWebRequest.Result.Success)
+                    {
+                        Debug.LogError($"[ZeroBillboard] Could not connect to API: {req.error}");
+                        return;
+                    }
+
+                    string json = req.downloadHandler.text;
+                    RemoteBillboardResponse response = JsonUtility.FromJson<RemoteBillboardResponse>(json);
+                    if (response == null || response.slides == null || response.slides.Count == 0)
+                    {
+                        Debug.LogWarning("[ZeroBillboard] Server returned empty slides list.");
+                        return;
+                    }
+
+                    List<BillboardSlide> newSlides = new List<BillboardSlide>();
+                    List<Sprite> newSprites = new List<Sprite>();
+
+                    for (int i = 0; i < response.slides.Count; i++)
+                    {
+                        var data = response.slides[i];
+                        UnityEditor.EditorUtility.DisplayProgressBar("Zero Billboard", $"Downloading slide '{data.title}' ({i + 1}/{response.slides.Count})", 0.2f + 0.7f * ((float)i / response.slides.Count));
+
+                        Color startCol = ParseHexColor(data.bgGradientStart, new Color(0.20f, 0.10f, 0.40f));
+                        Color endCol = ParseHexColor(data.bgGradientEnd, new Color(0.80f, 0.20f, 0.60f));
+                        BillboardSlide slide = new BillboardSlide(data.title, data.subtitle, data.badge, startCol, endCol)
+                        {
+                            imageUrl = data.imageUrl,
+                            actionUrl = data.actionUrl
+                        };
+
+                        Sprite slideSprite = null;
+                        if (!string.IsNullOrEmpty(data.imageUrl))
+                        {
+                            string imgUrl = data.imageUrl.Trim();
+                            using (UnityWebRequest imgReq = UnityWebRequest.Get(imgUrl))
+                            {
+                                imgReq.timeout = 10;
+                                var imgOp = imgReq.SendWebRequest();
+                                while (!imgOp.isDone)
+                                {
+                                    System.Threading.Thread.Sleep(20);
+                                }
+
+                                if (imgReq.result == UnityWebRequest.Result.Success && imgReq.downloadHandler.data != null && imgReq.downloadHandler.data.Length > 0)
+                                {
+                                    Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                                    if (tex.LoadImage(imgReq.downloadHandler.data))
+                                    {
+                                        tex.filterMode = FilterMode.Bilinear;
+                                        tex.wrapMode = TextureWrapMode.Clamp;
+                                        slideSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+                                        slideSprite.name = $"RemoteSlide_{i}";
+                                    }
+                                }
+                            }
+                        }
+
+                        if (slideSprite == null)
+                        {
+                            Texture2D gradTex = CreateDiagonalGradientTexture(256, 144, startCol, endCol);
+                            slideSprite = Sprite.Create(gradTex, new Rect(0, 0, gradTex.width, gradTex.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+                        }
+
+                        slide.customImage = slideSprite;
+                        newSlides.Add(slide);
+                        newSprites.Add(slideSprite);
+                    }
+
+                    slides = newSlides;
+                    generatedSprites = newSprites;
+                    RebuildDotsUI();
+                    currentIndex = 0;
+                    ApplyLayoutSettings();
+                    UpdateSlideDisplay(0, immediate: true);
+                    UnityEditor.EditorUtility.SetDirty(this);
+                    UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(gameObject.scene);
+
+                    Debug.Log($"[ZeroBillboard] Successfully synced {slides.Count} slides from web server in Editor!");
+                }
+            }
+            finally
+            {
+                UnityEditor.EditorUtility.ClearProgressBar();
+            }
         }
 #endif
 
@@ -503,8 +711,19 @@ namespace BillboardTool.UI
 
             if (fetchRemoteOnStart && !string.IsNullOrEmpty(remoteApiUrl))
             {
+                if (TryGetKnownRemoteSlides(out List<BillboardSlide> known))
+                {
+                    ApplyRemoteSlides(known);
+                }
+                else if (hideUntilRemoteLoaded)
+                {
+                    SetCardHidden(true);
+                }
+
                 FetchRemoteSlides();
             }
+
+            hasStarted = true;
 
             if (autoRefreshInterval > 0f)
             {
@@ -516,7 +735,7 @@ namespace BillboardTool.UI
 
         private void Update()
         {
-            if (enableMouseScroll)
+            if (enableMouseScroll && !waitingForRemote)
             {
                 CheckHoverScrollInput();
             }
@@ -562,6 +781,55 @@ namespace BillboardTool.UI
             }
         }
 
+        private void OnEnable()
+        {
+            // The fetch is stopped with the object; without this the card would stay hidden for good.
+            if (hasStarted && waitingForRemote)
+            {
+                FetchRemoteSlides();
+            }
+        }
+
+        private void SetCardHidden(bool hidden)
+        {
+            waitingForRemote = hidden;
+            if (rootCanvasGroup == null) rootCanvasGroup = GetComponent<CanvasGroup>();
+            if (rootCanvasGroup == null) rootCanvasGroup = gameObject.AddComponent<CanvasGroup>();
+            rootCanvasGroup.alpha = hidden ? 0f : 1f;
+            rootCanvasGroup.interactable = !hidden;
+            rootCanvasGroup.blocksRaycasts = !hidden;
+        }
+
+        private bool TryGetKnownRemoteSlides(out List<BillboardSlide> known)
+        {
+            known = null;
+            if (!remoteSlidesCache.TryGetValue(remoteApiUrl.Trim(), out List<BillboardSlide> cached)) return false;
+
+            // Sprites can be unloaded between scenes; fall back to a normal fetch then
+            foreach (BillboardSlide slide in cached)
+            {
+                if (slide.customImage == null) return false;
+            }
+
+            known = cached;
+            return known.Count > 0;
+        }
+
+        private void ApplyRemoteSlides(List<BillboardSlide> remoteSlides)
+        {
+            slides = new List<BillboardSlide>(remoteSlides);
+            generatedSprites = new List<Sprite>();
+            foreach (BillboardSlide slide in slides) generatedSprites.Add(slide.customImage);
+
+            RebuildDotsUI();
+
+            currentIndex = Mathf.Clamp(currentIndex, 0, slides.Count - 1);
+            UpdateSlideDisplay(currentIndex, immediate: true);
+
+            hasRemoteSlides = true;
+            if (waitingForRemote) SetCardHidden(false);
+        }
+
         private void OnDisable()
         {
             StopAutoSlide();
@@ -593,12 +861,122 @@ namespace BillboardTool.UI
             }
         }
 
+        private static string GetDiskCacheDirectory()
+        {
+            return Path.Combine(Application.persistentDataPath, DiskCacheFolder);
+        }
+
+        private static string GetDiskCachePath(string url)
+        {
+            return Path.Combine(GetDiskCacheDirectory(), Hash128.Compute(url).ToString() + ".img");
+        }
+
+        private static bool TryLoadTextureFromDisk(string url, out Texture2D texture)
+        {
+            texture = null;
+            try
+            {
+                string path = GetDiskCachePath(url);
+                if (!File.Exists(path)) return false;
+
+                Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!tex.LoadImage(File.ReadAllBytes(path)))
+                {
+                    Destroy(tex);
+                    File.Delete(path);
+                    return false;
+                }
+
+                tex.filterMode = FilterMode.Bilinear;
+                tex.wrapMode = TextureWrapMode.Clamp;
+                // Mark as recently used so PruneDiskCache keeps it
+                File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+                texture = tex;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ZeroBillboard] Could not read cached image: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static void SaveTextureToDisk(string url, byte[] bytes)
+        {
+            if (bytes == null || bytes.Length == 0) return;
+            try
+            {
+                Directory.CreateDirectory(GetDiskCacheDirectory());
+                File.WriteAllBytes(GetDiskCachePath(url), bytes);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ZeroBillboard] Could not write image cache: {ex.Message}");
+            }
+        }
+
+        private static void PruneDiskCache()
+        {
+            try
+            {
+                string dir = GetDiskCacheDirectory();
+                if (!Directory.Exists(dir)) return;
+
+                DateTime cutoff = DateTime.UtcNow.AddDays(-DiskCacheMaxAgeDays);
+                foreach (string file in Directory.GetFiles(dir, "*.img"))
+                {
+                    if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ZeroBillboard] Could not prune image cache: {ex.Message}");
+            }
+        }
+
+        [ContextMenu("Clear Image Cache & Reload")]
+        public void ClearImageCacheAndReload()
+        {
+            textureCache.Clear();
+            try
+            {
+                string dir = GetDiskCacheDirectory();
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ZeroBillboard] Could not clear disk image cache: {ex.Message}");
+            }
+            Debug.Log("[ZeroBillboard] Image texture cache cleared.");
+            FetchRemoteSlides();
+        }
+
         private IEnumerator FetchRemoteSlidesRoutine()
         {
-            if (string.IsNullOrEmpty(remoteApiUrl)) yield break;
+            string targetUrl = remoteApiUrl != null ? remoteApiUrl.Trim() : "";
+            if (string.IsNullOrEmpty(targetUrl)) yield break;
 
-            Debug.Log($"[ZeroBillboard] Connecting to CMS endpoint: {remoteApiUrl}");
-            using (UnityWebRequest req = UnityWebRequest.Get(remoteApiUrl))
+            // Auto-detect and fix misplaced image URLs or root URLs in Inspector
+            if (targetUrl.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                targetUrl.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                targetUrl.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                targetUrl.EndsWith(".webp", StringComparison.OrdinalIgnoreCase) ||
+                targetUrl.Contains("/uploads/"))
+            {
+                Debug.LogError($"[ZeroBillboard] 'Remote API URL' is currently set to an image URL ('{targetUrl}') instead of the JSON API endpoint!\n" +
+                               "👉 Please change 'Remote API URL' in the Inspector back to: http://localhost:3000/api/carousel");
+                yield break;
+            }
+
+            if (!targetUrl.Contains("/api/carousel") && !targetUrl.Contains("/api/billboard"))
+            {
+                if (targetUrl.EndsWith("/")) targetUrl = targetUrl.Substring(0, targetUrl.Length - 1);
+                targetUrl += "/api/carousel";
+                Debug.LogWarning($"[ZeroBillboard] 'Remote API URL' was missing the API route. Automatically connecting to: {targetUrl}");
+            }
+
+            Debug.Log($"[ZeroBillboard] Connecting to CMS endpoint: {targetUrl}");
+            using (UnityWebRequest req = UnityWebRequest.Get(targetUrl))
             {
                 req.timeout = 8;
                 yield return req.SendWebRequest();
@@ -610,6 +988,19 @@ namespace BillboardTool.UI
                 }
 
                 string json = req.downloadHandler.text;
+                if (string.IsNullOrEmpty(json))
+                {
+                    Debug.LogWarning("[ZeroBillboard] Server returned empty response.");
+                    yield break;
+                }
+
+                if (json.TrimStart().StartsWith("<"))
+                {
+                    Debug.LogError($"[ZeroBillboard] The server at '{targetUrl}' returned an HTML page instead of JSON!\n" +
+                                   "👉 Make sure 'Remote API URL' in Inspector is set to: http://localhost:3000/api/carousel");
+                    yield break;
+                }
+
                 RemoteBillboardResponse response = null;
                 try
                 {
@@ -617,7 +1008,7 @@ namespace BillboardTool.UI
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"[ZeroBillboard] Failed to parse JSON response: {ex.Message}");
+                    Debug.LogError($"[ZeroBillboard] Failed to parse JSON response: {ex.Message}. Response preview: {(json.Length > 100 ? json.Substring(0, 100) + "..." : json)}");
                     yield break;
                 }
 
@@ -647,25 +1038,60 @@ namespace BillboardTool.UI
                     // Download image if imageUrl is provided
                     if (!string.IsNullOrEmpty(data.imageUrl))
                     {
-                        if (textureCache.TryGetValue(data.imageUrl, out Texture2D cachedTex) && cachedTex != null)
+                        string imgUrl = data.imageUrl.Trim();
+                        if (textureCache.TryGetValue(imgUrl, out Texture2D cachedTex) && cachedTex != null)
                         {
-                            slideSprite = Sprite.Create(cachedTex, new Rect(0, 0, cachedTex.width, cachedTex.height), new Vector2(0.5f, 0.5f));
+                            slideSprite = Sprite.Create(cachedTex, new Rect(0, 0, cachedTex.width, cachedTex.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+                        }
+                        else if (TryLoadTextureFromDisk(imgUrl, out Texture2D diskTex))
+                        {
+                            textureCache[imgUrl] = diskTex;
+                            slideSprite = Sprite.Create(diskTex, new Rect(0, 0, diskTex.width, diskTex.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
                         }
                         else
                         {
-                            using (UnityWebRequest imgReq = UnityWebRequestTexture.GetTexture(data.imageUrl))
+                            using (UnityWebRequest imgReq = UnityWebRequestTexture.GetTexture(imgUrl))
                             {
                                 imgReq.timeout = 10;
                                 yield return imgReq.SendWebRequest();
                                 if (imgReq.result == UnityWebRequest.Result.Success)
                                 {
                                     Texture2D tex = DownloadHandlerTexture.GetContent(imgReq);
-                                    textureCache[data.imageUrl] = tex;
-                                    slideSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+                                    if (tex != null)
+                                    {
+                                        tex.filterMode = FilterMode.Bilinear;
+                                        tex.wrapMode = TextureWrapMode.Clamp;
+                                        textureCache[imgUrl] = tex;
+                                        SaveTextureToDisk(imgUrl, imgReq.downloadHandler.data);
+                                        slideSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+                                        Debug.Log($"[ZeroBillboard] Downloaded banner image for '{data.title}': {imgUrl} ({tex.width}x{tex.height})");
+                                    }
                                 }
                                 else
                                 {
-                                    Debug.LogWarning($"[ZeroBillboard] Failed to load image {data.imageUrl}: {imgReq.error}");
+                                    // Fallback attempt: Raw byte download + ImageConversion.LoadImage
+                                    using (UnityWebRequest rawReq = UnityWebRequest.Get(imgUrl))
+                                    {
+                                        rawReq.timeout = 10;
+                                        yield return rawReq.SendWebRequest();
+                                        if (rawReq.result == UnityWebRequest.Result.Success && rawReq.downloadHandler.data != null && rawReq.downloadHandler.data.Length > 0)
+                                        {
+                                            Texture2D fallbackTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                                            if (fallbackTex.LoadImage(rawReq.downloadHandler.data))
+                                            {
+                                                fallbackTex.filterMode = FilterMode.Bilinear;
+                                                fallbackTex.wrapMode = TextureWrapMode.Clamp;
+                                                textureCache[imgUrl] = fallbackTex;
+                                                SaveTextureToDisk(imgUrl, rawReq.downloadHandler.data);
+                                                slideSprite = Sprite.Create(fallbackTex, new Rect(0, 0, fallbackTex.width, fallbackTex.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+                                                Debug.Log($"[ZeroBillboard] Fallback loaded banner image for '{data.title}': {imgUrl} ({fallbackTex.width}x{fallbackTex.height})");
+                                            }
+                                        }
+                                        else
+                                        {
+                                            Debug.LogWarning($"[ZeroBillboard] Could not download image for slide '{data.title}' from '{imgUrl}': {imgReq.error}");
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -674,8 +1100,8 @@ namespace BillboardTool.UI
                     // Procedural gradient fallback if no custom image
                     if (slideSprite == null)
                     {
-                        Texture2D gradTex = CreateDiagonalGradientTexture(128, 72, startCol, endCol);
-                        slideSprite = Sprite.Create(gradTex, new Rect(0, 0, gradTex.width, gradTex.height), new Vector2(0.5f, 0.5f));
+                        Texture2D gradTex = CreateDiagonalGradientTexture(256, 144, startCol, endCol);
+                        slideSprite = Sprite.Create(gradTex, new Rect(0, 0, gradTex.width, gradTex.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
                     }
 
                     slide.customImage = slideSprite;
@@ -683,14 +1109,11 @@ namespace BillboardTool.UI
                     newSprites.Add(slideSprite);
                 }
 
+                PruneDiskCache();
+
                 // Apply downloaded slides
-                slides = newSlides;
-                generatedSprites = newSprites;
-
-                RebuildDotsUI();
-
-                currentIndex = Mathf.Clamp(currentIndex, 0, slides.Count - 1);
-                UpdateSlideDisplay(currentIndex, immediate: false);
+                remoteSlidesCache[remoteApiUrl.Trim()] = newSlides;
+                ApplyRemoteSlides(newSlides);
 
                 Debug.Log($"[ZeroBillboard] Successfully updated {slides.Count} slides from web server!");
             }
@@ -924,15 +1347,26 @@ namespace BillboardTool.UI
             if (subtitleText != null) subtitleText.text = slide.subtitle;
             if (badgeText != null) badgeText.text = slide.badge;
 
+            if (slideBackgroundImage == null)
+            {
+                Transform bg = transform.Find("InnerContainer/SlideBackgroundImage");
+                if (bg != null) slideBackgroundImage = bg.GetComponent<Image>();
+            }
+
             if (slideBackgroundImage != null)
             {
-                if (index < generatedSprites.Count && generatedSprites[index] != null)
-                {
-                    slideBackgroundImage.sprite = generatedSprites[index];
-                }
-                else if (slide.customImage != null)
+                slideBackgroundImage.gameObject.SetActive(true);
+                slideBackgroundImage.enabled = true;
+                slideBackgroundImage.type = Image.Type.Simple;
+                slideBackgroundImage.preserveAspect = false;
+
+                if (slide.customImage != null)
                 {
                     slideBackgroundImage.sprite = slide.customImage;
+                }
+                else if (index >= 0 && index < generatedSprites.Count && generatedSprites[index] != null)
+                {
+                    slideBackgroundImage.sprite = generatedSprites[index];
                 }
                 slideBackgroundImage.color = Color.white;
             }
